@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import fastifyPostgres from '@fastify/postgres';
-import fastifyRedis from '@fastify/redis';
+
 import fastifyWebsocket from '@fastify/websocket';
 import { setupCronJobs } from './cron/scanner';
 
@@ -13,9 +13,6 @@ server.register(fastifyPostgres, {
   connectionString: process.env.DATABASE_URL || 'postgres://user:pass@localhost:5432/algotrade'
 });
 
-server.register(fastifyRedis, {
-  host: process.env.REDIS_HOST || '127.0.0.1'
-});
 
 server.register(fastifyWebsocket);
 

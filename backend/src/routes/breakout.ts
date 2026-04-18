@@ -3,13 +3,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 export default async function breakoutRoutes(fastify: FastifyInstance) {
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // 1. Try fetching from Redis Cache first
-      const cached = await fastify.redis.get('breakout_stocks_weekly');
-      if (cached) {
-         return reply.send(JSON.parse(cached));
-      }
-
-      // 2. Fallback to DB (or call Python analysis engine directly if real-time)
+      // 1. Fetch from DB
       const client = await fastify.pg.connect();
       try {
         const { rows } = await client.query(
@@ -25,8 +19,7 @@ export default async function breakoutRoutes(fastify: FastifyInstance) {
            confidence: r.confidence
         }));
 
-        // Cache the response
-        await fastify.redis.set('breakout_stocks_weekly', JSON.stringify(responseData), 'EX', 3600);
+
         return reply.send(responseData);
       } finally {
         client.release();
