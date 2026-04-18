@@ -33,8 +33,7 @@ export const setupCronJobs = (fastify: FastifyInstance) => {
         }
         await client.query('COMMIT');
         
-        // Invalidate cache
-        await fastify.redis.del('breakout_stocks_weekly');
+
         fastify.log.info(`Imported ${breakouts.length} new breakouts.`);
       } catch (dbErr) {
         await client.query('ROLLBACK');
