@@ -1,16 +1,12 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: algotrade
+  mongodb:
+    image: mongo:6-jammy
     ports:
-      - "5432:5432"
+      - "27017:27017"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mongodb_data:/data/db
 
   redis:
     image: redis:7-alpine
@@ -18,4 +14,5 @@ services:
       - "6379:6379"
 
 volumes:
-  postgres_data:
+  mongodb_data:
+

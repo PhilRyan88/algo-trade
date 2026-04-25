@@ -1,48 +1,47 @@
 import cron from 'node-cron';
-import { FastifyInstance } from 'fastify';
-import axios from 'axios';
+import { angelOneService } from '../services/angelOneService';
+import { detectBreakout } from '../services/analysisService';
+import { Breakout } from '../models/Breakout';
 
-export const setupCronJobs = (fastify: FastifyInstance) => {
+export const setupCronJobs = () => {
   // Run every Saturday at 10:00 AM
   cron.schedule('0 10 * * 6', async () => {
-    fastify.log.info('Running weekly breakout scanner cron job...');
+    console.log('Running weekly breakout scanner cron job...');
     try {
-      // Assuming the python microservice exposes an endpoint to trigger analysis
-      const PYTHON_ENGINE_URL = process.env.PYTHON_ENGINE_URL || 'http://localhost:8000';
+      const symbolsToScan = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA'];
       
-      const response = await axios.post(`${PYTHON_ENGINE_URL}/analyze/breakouts`, {
-        timeframe: '1w',
-        symbols: ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA'] // Or fetch from DB
-      });
-
-      const breakouts = response.data.results;
-      
-      // Store results in DB
-      const client = await fastify.pg.connect();
-      try {
-        await client.query('BEGIN');
-        // Clear old ones (optional depending on logging needs)
-        await client.query('DELETE FROM breakouts WHERE created_at < NOW() - INTERVAL \'7 days\'');
-        
-        for (const b of breakouts) {
-          await client.query(
-            `INSERT INTO breakouts (symbol, entry_price, target_price, stoploss, confidence)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [b.symbol, b.entry, b.target, b.stoploss, b.confidence]
-          );
-        }
-        await client.query('COMMIT');
-        
-
-        fastify.log.info(`Imported ${breakouts.length} new breakouts.`);
-      } catch (dbErr) {
-        await client.query('ROLLBACK');
-        throw dbErr;
-      } finally {
-        client.release();
+      const isAuthenticated = await angelOneService.authenticate();
+      if (!isAuthenticated) {
+          console.warn('Proceeding with unauthenticated mock data for scanning due to auth failure.');
       }
+
+      let newBreakoutsCount = 0;
+
+      for (const symbol of symbolsToScan) {
+        // Fetch historical data
+        const candles = await angelOneService.getHistoricalData(symbol);
+        
+        // Analyze data
+        const result = detectBreakout(candles);
+
+        // If breakout detected, save to MongoDB
+        if (result.is_breakout) {
+            const breakoutDoc = new Breakout({
+                symbol,
+                entry_price: result.entry_price,
+                target_price: result.target_price,
+                stoploss: result.stoploss,
+                confidence: result.confidence
+            });
+            await breakoutDoc.save();
+            newBreakoutsCount++;
+        }
+      }
+
+      console.log(`Imported ${newBreakoutsCount} new breakouts.`);
+
     } catch (error) {
-      fastify.log.error(error, 'Error running weekly scanner:');
+      console.error('Error running weekly scanner:', error);
     }
   });
 };

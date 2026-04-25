@@ -1,4 +1,5 @@
 import React from 'react';
+import { LogBox } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,6 +10,12 @@ import OptionsScreen from './src/screens/OptionsScreen';
 
 const queryClient = new QueryClient();
 const Tab = createBottomTabNavigator();
+
+// Suppress harmless third-party deprecation warnings on Web
+LogBox.ignoreLogs([
+  'props.pointerEvents is deprecated',
+  '"shadow*" style props are deprecated',
+]);
 
 export default function App() {
   return (
