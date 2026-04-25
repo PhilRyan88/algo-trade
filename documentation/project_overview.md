@@ -4,22 +4,16 @@
 **AlgoTrade Pro** is an algorithmic trading platform designed to analyze financial market data, detect specific trading patterns (such as breakouts), and serve these signals to a mobile application in real time. The project is structured as a modern, microservices-based monorepo that leverages Python for heavy data analysis, Node.js for scalable API and WebSocket handling, and React Native for a cross-platform mobile user interface.
 
 ## 2. Architecture & Components
-The application is divided into three main components and supported by a containerized infrastructure layer.
+The application is divided into two main components and supported by a containerized infrastructure layer.
 
-### A. Analysis Engine (Python / FastAPI)
-The Analysis Engine is responsible for the core mathematical and statistical analysis of market data.
-- **Tech Stack:** Python, FastAPI, Pandas, NumPy, Pydantic.
+### A. Backend API Service (Node.js / Express)
+The Backend is the central hub performing data analysis, interacting with the database, and serving the mobile application.
+- **Tech Stack:** Node.js, TypeScript, Express, Mongoose (MongoDB), WebSockets.
 - **Responsibilities:**
-  - Mock historical OHLCV (Open, High, Low, Close, Volume) data or integrate with real data providers (like Twelve Data or Finnhub).
-  - Execute pattern recognition algorithms, specifically technical breakout detection (`app/patterns/breakout.py`).
-  - Return calculated entry prices, target prices, stop-loss values, and confidence scores for trade opportunities via a REST endpoint (`POST /analyze/breakouts`).
-
-### B. Backend API Service (Node.js / Fastify)
-The Backend acts as the central hub connecting the Analysis Engine, the database, and the mobile application.
-- **Tech Stack:** Node.js, TypeScript, Fastify, PostgreSQL, WebSockets.
-- **Responsibilities:**
-  - **Cron Jobs (`src/cron/scanner.ts`):** Repeatedly trigger to scan for new breakouts, likely calling the Python Analysis Engine and storing the interpreted results in the database.
-  - **Database Interaction:** Serve stored stock pattern data from a PostgreSQL database. The `/api/breakout` endpoint fetches the top 50 latest breakout signals.
+  - **Cron Jobs (`src/cron/scanner.ts`):** Repeatedly trigger to scan for new breakouts by fetching data from AngelOne and storing the interpreted results in the database.
+  - **Pattern Recognition (`src/services/analysisService.ts`):** Mathematical detection of technical breakouts.
+  - **Data Integration (`src/services/angelOneService.ts`):** Fetches real OHLCV data from AngelOne SmartAPI.
+  - **Database Interaction:** Serve stored stock pattern data from a MongoDB database. The `/api/breakout` endpoint fetches the top 50 latest breakout signals.
   - **Real-time Updates:** Host a WebSocket server (`/api/ws`) to stream real-time trade details or options data to connected clients.
 
 ### C. Mobile Application (React Native / Expo)
@@ -30,17 +24,16 @@ The client-facing UI provides users with easy access to market analysis on the g
   - Connect to the backend REST APIs for historical/static data and WebSockets for real-time signal streams.
   - Manage application state asynchronously using React Query (@tanstack/react-query).
 
-### D. Infrastructure
+### C. Infrastructure
 - **Tech Stack:** Docker, Docker Compose.
 - **Responsibilities:**
-  - **PostgreSQL Database:** Provides persistent storage for breakout signals (`postgres:15-alpine`).
+  - **MongoDB Database:** Provides persistent document storage for breakout signals (`mongo:6-jammy`).
   - **Redis:** Operates as an in-memory data store for caching or message brokering (`redis:7-alpine`).
 
 ## 3. How It All Works Together
-1. **Data Acquisition:** The Node.js Fastify backend uses a cron scheduler to periodically request market analyses.
-2. **Analysis Execution:** The backend sends requests to the Python FastAPI engine (`/analyze/breakouts`) specifying the symbols and timeframes.
-3. **Signal Generation:** The Python engine builds dataframes (using Pandas/NumPy), applies statistical algorithms to identify true breakouts, and responds back to the Node backend with the results.
-4. **Storage:** The Node backend persists these actionable signals into the PostgreSQL database.
+1. **Data Acquisition:** The Node.js backend uses a cron scheduler to periodically trigger scans. It fetches data using the AngelOne SmartAPI.
+2. **Analysis Execution:** The internal `analysisService.ts` applies statistical algorithms on the fetched data to identify true breakouts.
+3. **Storage:** The backend persists these actionable signals into the MongoDB database via Mongoose.
 5. **Client Delivery:** 
    - A user opens the **Mobile App**, which hits the `/api/breakout` REST endpoint to fetch the latest opportunities.
    - The Mobile App can also connect to the WebSocket server at `/api/ws` to receive live notifications as soon as new trade signals are detected and pushed by the server.
@@ -48,17 +41,14 @@ The client-facing UI provides users with easy access to market analysis on the g
 ## 4. Current File Structure
 ```text
 algo-trade-pro/
-├── analysis-engine/       # Python Microservice
-│   ├── app/               # Logic and routers (main.py, patterns/breakout.py)
-│   ├── requirements.txt   # Python Dependencies
-│   └── .env               # Environment configuration
 ├── backend/               # Node.js TypeScript API Server
-│   ├── src/               # Application code (server.ts, routes/, cron/)
-│   ├── package.json       # Node Dependencies (Fastify, Prisma/pg, etc.)
+│   ├── src/               # Application code (server.ts, routes/, services/, etc.)
+│   ├── package.json       # Node Dependencies (Express, Mongoose, etc.)
+│   ├── .env               # Environment configuration
 │   └── tsconfig.json      # TypeScript config
 ├── mobile/                # React Native Mobile App
 │   ├── src/               # React components, screens, services
 │   ├── App.tsx            # Main Expo entry point
 │   └── package.json       # Expo / React Native Dependencies
-└── docker-compose.yml     # Infrastructure setup (Postgres + Redis)
+└── docker-compose.yml     # Infrastructure setup (MongoDB + Redis)
 ```

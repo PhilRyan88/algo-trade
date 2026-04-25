@@ -1,43 +1,36 @@
-import Fastify from 'fastify';
-import fastifyPostgres from '@fastify/postgres';
-
-import fastifyWebsocket from '@fastify/websocket';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import app from './app';
+import { connectDB } from './config/db';
+import { env } from './config/env';
 import { setupCronJobs } from './cron/scanner';
 
-import breakoutRoutes from './routes/breakout';
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/api/ws' });
 
-const server = Fastify({ logger: true });
-
-// Register Plugins
-server.register(fastifyPostgres, {
-  connectionString: process.env.DATABASE_URL || 'postgres://user:pass@localhost:5432/algotrade'
-});
-
-
-server.register(fastifyWebsocket);
-
-// Register Routes
-server.register(async function (fastify) {
-  fastify.get('/api/ws', { websocket: true }, (connection, req) => {
-    connection.socket.on('message', (message: any) => {
-      // Logic for real-time options/trade signals
-      connection.socket.send(`Received: ${message}`);
-    });
+wss.on('connection', (ws) => {
+  ws.on('message', (message) => {
+    // Logic for real-time options/trade signals
+    ws.send(`Received: ${message}`);
   });
 });
 
-server.register(breakoutRoutes, { prefix: '/api/breakout' });
-
-// Initialize server
-const start = async () => {
+const startServer = async () => {
   try {
-    setupCronJobs(server);
-    await server.listen({ port: 3000, host: '0.0.0.0' });
-    server.log.info(`Server listening on http://localhost:3000`);
-  } catch (err) {
-    server.log.error(err);
+    // Connect to MongoDB
+    await connectDB();
+
+    // Setup Cron Jobs
+    setupCronJobs();
+
+    // Start Server
+    server.listen(env.PORT, () => {
+      console.log(`Server running on port ${env.PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 };
 
-start();
+startServer();
