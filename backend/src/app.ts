@@ -1,23 +1,22 @@
-import express from 'express';
-import cors from 'cors';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import breakoutRoutes from './routes/breakoutRoutes';
 import dividendRoutes from './routes/dividendRoutes';
 import optionsRoutes from './routes/optionsRoutes';
 
-const app = express();
+const app = Fastify({ logger: true });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.register(cors);
 
 // Routes
-app.use('/api/breakout', breakoutRoutes);
-app.use('/api/dividends', dividendRoutes);
-app.use('/api/options', optionsRoutes);
+app.register(breakoutRoutes, { prefix: '/api/breakout' });
+app.register(dividendRoutes, { prefix: '/api/dividends' });
+app.register(optionsRoutes, { prefix: '/api/options' });
 
 // Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+app.get('/health', async (request, reply) => {
+  return { status: 'ok' };
 });
 
 export default app;
