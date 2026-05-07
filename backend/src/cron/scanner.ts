@@ -12,7 +12,8 @@ export const setupCronJobs = () => {
       
       const isAuthenticated = await angelOneService.authenticate();
       if (!isAuthenticated) {
-          console.warn('Proceeding with unauthenticated mock data for scanning due to auth failure.');
+          console.error('Failed to authenticate with Angel One API. Skipping scan.');
+          return;
       }
 
       let newBreakoutsCount = 0;

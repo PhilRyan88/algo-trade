@@ -1,7 +1,7 @@
-import { Request, Response } from 'express';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { Breakout } from '../models/Breakout';
 
-export const getBreakouts = async (req: Request, res: Response) => {
+export const getBreakouts = async (request: FastifyRequest, reply: FastifyReply) => {
   try {
     const breakouts = await Breakout.find()
       .sort({ createdAt: -1 })
@@ -16,9 +16,9 @@ export const getBreakouts = async (req: Request, res: Response) => {
       confidence: r.confidence
     }));
 
-    res.json(responseData);
+    reply.send(responseData);
   } catch (error) {
     console.error('Error fetching breakouts:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    reply.status(500).send({ error: 'Internal Server Error' });
   }
 };

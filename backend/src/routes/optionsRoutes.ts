@@ -1,12 +1,14 @@
-import { Router } from 'express';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { angelOneService } from '../services/angelOneService';
 
-const router = Router();
-
-router.get('/', (req, res) => {
-  res.json([
-    { id: '1', symbol: 'NIFTY', type: 'CE', strike: 22000, entry: 150, target: 200, sl: 120, confidence: 85 },
-    { id: '2', symbol: 'BANKNIFTY', type: 'PE', strike: 46000, entry: 300, target: 450, sl: 220, confidence: 90 }
-  ]);
-});
-
-export default router;
+export default async function optionsRoutes(fastify: FastifyInstance) {
+  fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const data = await angelOneService.getOptionsData();
+      return data;
+    } catch (error) {
+      console.error('Error fetching options:', error);
+      reply.status(500).send({ error: 'Failed to fetch options data from Smart API' });
+    }
+  });
+}

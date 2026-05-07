@@ -1,12 +1,14 @@
-import { Router } from 'express';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { nseService } from '../services/nseService';
 
-const router = Router();
-
-router.get('/', (req, res) => {
-  res.json([
-    { id: '1', symbol: 'KO', price: 60.50, buyDate: '2026-05-01', sellDate: '2026-06-01', dividendPerShare: 0.46, yield: 3.1 },
-    { id: '2', symbol: 'T', price: 15.20, buyDate: '2026-04-20', sellDate: '2026-05-10', dividendPerShare: 0.28, yield: 7.2 }
-  ]);
-});
-
-export default router;
+export default async function dividendRoutes(fastify: FastifyInstance) {
+  fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const data = await nseService.getDividendActions();
+      return data;
+    } catch (error) {
+      console.error('Error fetching dividends:', error);
+      reply.status(500).send({ error: 'Failed to fetch dividend data from NSE' });
+    }
+  });
+}

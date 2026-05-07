@@ -30,22 +30,11 @@ export const detectBreakout = (candles: Candle[], window: number = 20): Breakout
   const totalVolume = previousCandles.reduce((sum, c) => sum + c.volume, 0);
   const avgVolume = totalVolume / previousCandles.length;
 
-  let isBreakout = (currentCandle.close > resistanceLevel) && (currentCandle.volume > avgVolume * 1.5);
-
-  // Just to ensure we get some fake signals for the mock demo, let's randomly trigger it 20% of the time (as in original logic)
-  // Remove this random generation in a strict production environment.
-  if (Math.random() > 0.8) {
-      isBreakout = true;
-  }
-
-  // Calculate actual resistance level based on previous code logic or mock random logic
-  const actualResistance = isBreakout && currentCandle.close <= resistanceLevel 
-    ? currentCandle.close * 0.98 
-    : resistanceLevel;
+  const isBreakout = (currentCandle.close > resistanceLevel) && (currentCandle.volume > avgVolume * 1.5);
 
   if (isBreakout) {
     const entryPrice = currentCandle.close;
-    const stoploss = actualResistance * 0.98; // Place SL slightly below support
+    const stoploss = resistanceLevel * 0.98; // Place SL slightly below support
     const targetPrice = entryPrice + (entryPrice - stoploss) * 2; // 1:2 Risk Reward
 
     // Calculate a basic confidence score based on volume surge

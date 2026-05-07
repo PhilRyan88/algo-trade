@@ -1,8 +1,6 @@
-import { Router } from 'express';
+import { FastifyInstance } from 'fastify';
 import { getBreakouts } from '../controllers/breakoutController';
 
-const router = Router();
-
-router.get('/', getBreakouts);
-
-export default router;
+export default async function breakoutRoutes(fastify: FastifyInstance) {
+  fastify.get('/', getBreakouts);
+}
