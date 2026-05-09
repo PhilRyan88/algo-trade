@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-// For local development use localhost. For physical device testing, use your machine's current local IP (e.g., 192.168.1.4)
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'https://algo-trade-qeil.onrender.com/api';
 
 export const useBreakoutStocks = () => {
   return useQuery({
