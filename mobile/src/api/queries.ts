@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-const API_BASE_URL = 'http://localhost:3000/api'; // Replace with env variable in prod
+const API_BASE_URL = 'http://10.146.144.119:3000/api';
 
 export const useBreakoutStocks = () => {
   return useQuery({

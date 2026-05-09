@@ -4,7 +4,8 @@ import { nseService } from '../services/nseService';
 export default async function dividendRoutes(fastify: FastifyInstance) {
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const data = await nseService.getDividendActions();
+      const { page = 1, limit = 10 } = request.query as { page?: number; limit?: number };
+      const data = await nseService.getDividendActions(Number(page), Number(limit));
       return data;
     } catch (error) {
       console.error('Error fetching dividends:', error);
