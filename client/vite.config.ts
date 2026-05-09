@@ -18,6 +18,8 @@ export default defineConfig({
         theme_color: '#0A0A0A',
         background_color: '#0A0A0A',
         display: 'standalone',
+        orientation: 'portrait',
+        categories: ['finance', 'business'],
         icons: [
           {
             src: 'pwa-192x192.png',
@@ -33,7 +35,7 @@ export default defineConfig({
             src: 'pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'maskable'
           }
         ]
       }
