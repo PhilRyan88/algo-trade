@@ -5,27 +5,30 @@ import { env } from './config/env';
 import { setupCronJobs } from './cron/scanner';
 
 const startServer = async () => {
+  console.log('🚀 Server starting process initiated...');
   try {
-    // Connect to MongoDB
+    // 1. Connect to MongoDB
     await connectDB();
 
-    // Setup Cron Jobs
+    // 2. Setup Cron Jobs
     setupCronJobs();
 
+    // 3. Start Listening (Render needs this to happen quickly)
+    const address = await app.listen({ port: env.PORT, host: '0.0.0.0' });
+    console.log(`✅ Server running at ${address}`);
+
+    // 4. Setup WebSocket (Do this AFTER the server is listening)
     const wss = new WebSocketServer({ server: app.server, path: '/api/ws' });
 
     wss.on('connection', (ws) => {
+      console.log('🔌 New WebSocket connection');
       ws.on('message', (message) => {
-        // Logic for real-time options/trade signals
         ws.send(`Received: ${message}`);
       });
     });
 
-    // Start Server
-    await app.listen({ port: env.PORT, host: '0.0.0.0' });
-    console.log(`Server running on port ${env.PORT}`);
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ CRITICAL: Failed to start server:', error);
     process.exit(1);
   }
 };
