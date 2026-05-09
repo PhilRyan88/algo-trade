@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
-const API_BASE_URL = 'http://localhost:3000/api'; // Replace with env variable in prod
+// For local development use localhost. For physical device testing, use your machine's current local IP (e.g., 192.168.1.4)
+const API_BASE_URL = 'http://localhost:3000/api';
 
 export const useBreakoutStocks = () => {
   return useQuery({

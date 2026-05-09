@@ -1,56 +1,73 @@
 import { NseIndia } from 'stock-nse-india';
+import { parse, subDays, isBefore, set, format, isSunday, isSaturday } from 'date-fns';
 
 const nse = new NseIndia();
 
 export class NseService {
-  async getDividendActions(): Promise<any[]> {
+  async getDividendActions(page: number = 1, limit: number = 10): Promise<{ data: any[], total: number, hasMore: boolean, page: number, limit: number }> {
     try {
-      console.log('Fetching NSE Corporate Actions...');
+      console.log(`Fetching NSE Corporate Actions (Page ${page}, Limit ${limit})...`);
       const actions = await nse.getDataByEndpoint('/api/corporates-corporateActions?index=equities');
 
       if (!Array.isArray(actions)) {
-        return [];
+        return { data: [], total: 0, hasMore: false, page, limit };
       }
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
+      const now = new Date();
+      
       // Filter for dividends
       let dividends = actions
-        .filter((action) => action.subject && action.subject.toLowerCase().includes('dividend'))
+        .filter((action) => {
+          const subject = (action.subject || '').toLowerCase();
+          return subject.includes('dividend');
+        })
         .map((action, index) => {
           let dividendPerShare = 0;
-          const match = action.subject.match(/Rs ([\d.]+)/i);
+          const match = action.subject.match(/Rs\.?\s*([\d.]+)/i);
           if (match && match[1]) {
             dividendPerShare = parseFloat(match[1]);
           }
 
-          // Convert DD-MMM-YYYY to YYYY-MM-DD
-          const [day, monthStr, year] = action.exDate.split('-');
-          const monthMap: Record<string, string> = {
-            'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-            'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-          };
-          const month = monthMap[monthStr] || '01';
-          const isoDate = `${year}-${month}-${day.padStart(2, '0')}`;
+          // Parse DD-MMM-YYYY using date-fns
+          const exDate = parse(action.exDate, 'dd-MMM-yyyy', new Date());
+          
+          // Buy date is one trading day before ex-date
+          let buyDate = subDays(exDate, 1);
+          
+          // If buy date is a weekend, move to Friday
+          if (isSunday(buyDate)) buyDate = subDays(buyDate, 2);
+          else if (isSaturday(buyDate)) buyDate = subDays(buyDate, 1);
 
           return {
-            id: `${action.symbol}-${index}`,
+            id: `${action.symbol}-${action.exDate}-${index}`,
             symbol: action.symbol,
-            buyDate: isoDate,
-            sellDate: isoDate,
+            buyDate: format(buyDate, 'yyyy-MM-dd'),
+            exDate: format(exDate, 'yyyy-MM-dd'),
             dividendPerShare: dividendPerShare,
             price: 0,
             yield: 0
           };
         })
-        .filter(action => new Date(action.buyDate).getTime() >= today.getTime());
+        .filter(action => {
+          if (action.dividendPerShare <= 0) return false;
 
-      // Limit to max 10 to avoid getting rate limited by NSE
-      dividends = dividends.slice(0, 10);
+          const buyDate = parse(action.buyDate, 'yyyy-MM-dd', new Date());
+          const deadline = set(buyDate, { hours: 15, minutes: 30, seconds: 0, milliseconds: 0 });
+          
+          return isBefore(now, deadline);
+        })
+        .sort((a, b) => new Date(a.buyDate).getTime() - new Date(b.buyDate).getTime());
 
-      // Fetch LTP and calculate yield
-      for (const div of dividends) {
+      console.log(`Found ${dividends.length} eligible dividends out of ${actions.length} total actions.`);
+
+      // Pagination
+      const total = dividends.length;
+      const startIndex = (page - 1) * limit;
+      const paginatedDividends = dividends.slice(startIndex, startIndex + limit);
+      const hasMore = startIndex + limit < total;
+
+      // Fetch LTP and calculate yield only for paginated results
+      for (const div of paginatedDividends) {
         try {
           const details = await nse.getEquityDetails(div.symbol);
           if (details && details.priceInfo && details.priceInfo.lastPrice) {
@@ -64,10 +81,16 @@ export class NseService {
         }
       }
 
-      return dividends;
+      return {
+        data: paginatedDividends,
+        total,
+        hasMore,
+        page,
+        limit
+      };
     } catch (error) {
       console.error('Error fetching NSE corporate actions:', error);
-      return [];
+      return { data: [], total: 0, hasMore: false, page, limit };
     }
   }
 }

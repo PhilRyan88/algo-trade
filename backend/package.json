@@ -5,11 +5,13 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "ts-node-dev src/server.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "postinstall": "npm run build"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "axios": "^1.6.0",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.3.1",
     "fastify": "^5.8.5",
     "mongoose": "^8.0.0",
