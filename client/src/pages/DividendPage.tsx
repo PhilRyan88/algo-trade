@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useGetDividendsQuery } from '../features/api/apiSlice';
+import { useGetDividendsQuery } from '../features/dividends/dividendApiSlice';
 import { Calendar, DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format, parseISO } from 'date-fns';

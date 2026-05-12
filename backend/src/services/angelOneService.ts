@@ -1,16 +1,86 @@
 import { env } from '../config/env';
 // @ts-ignore
-import { SmartAPI } from 'smartapi-javascript';
+import { SmartAPI, WebSocketV2 } from 'smartapi-javascript';
 // @ts-ignore
 import { TOTP } from 'totp-generator';
+import { EventEmitter } from 'events';
 
-export class AngelOneService {
+export class AngelOneService extends EventEmitter {
   private smartApi: any;
+  private webSocket: any;
   private isAuthenticated: boolean = false;
+  private activeClientCode: string = env.ANGELONE_CLIENT_CODE;
 
   constructor() {
+    super();
     this.smartApi = new SmartAPI({
       api_key: env.ANGELONE_API_KEY,
+    });
+  }
+
+  getIsAuthenticated() {
+    return this.isAuthenticated;
+  }
+
+  async loginWithCredentials(clientCode: string, pin: string, totpCode: string): Promise<boolean> {
+    try {
+      console.log('Authenticating manually with AngelOne SmartAPI...');
+      const res = await this.smartApi.generateSession(clientCode, pin, totpCode);
+      if (res && res.status) {
+        this.isAuthenticated = true;
+        this.activeClientCode = clientCode; // Store dynamic client code
+        console.log('Manual AngelOne authentication successful.');
+        this.startWebSocket();
+        return true;
+      }
+      console.warn('Manual AngelOne auth failed:', res ? res.message : 'Unknown error');
+      return false;
+    } catch (error) {
+      console.error('Manual AngelOne auth error:', error);
+      return false;
+    }
+  }
+
+  logout() {
+    this.isAuthenticated = false;
+    this.smartApi.access_token = null;
+    this.activeClientCode = '';
+    if (this.webSocket) {
+      try {
+        // Disconnect logic if available in SDK, else just nullify
+        this.webSocket = null;
+      } catch (e) {}
+    }
+    console.log('Logged out and WebSocket disconnected.');
+  }
+
+  startWebSocket() {
+    if (!this.isAuthenticated || !this.smartApi.access_token) return;
+
+    this.webSocket = new WebSocketV2({
+      jwttoken: this.smartApi.access_token,
+      apikey: env.ANGELONE_API_KEY,
+      clientcode: this.activeClientCode, // Use dynamically stored client code
+      feedtype: this.smartApi.feedToken
+    });
+
+    this.webSocket.connect().then(() => {
+      console.log('AngelOne WebSocketV2 connected.');
+      
+      this.webSocket.fetchData({
+        correlationID: 'abc1234567',
+        action: 1,
+        mode: 3,
+        exchangeType: 1,
+        tokens: ['26000', '26009']
+      });
+
+      this.webSocket.on('tick', (receiveData: any) => {
+        console.log('Live Tick Received:', receiveData.length > 0 ? receiveData[0].exchangeType : 'Unknown');
+        this.emit('market_data', receiveData);
+      });
+    }).catch((err: any) => {
+      console.error('WebSocket Error:', err);
     });
   }
 
@@ -25,19 +95,21 @@ export class AngelOneService {
       
       const { otp } = await TOTP.generate(env.ANGELONE_TOTP_SECRET);
 
-      await this.smartApi.generateSession(
+      const res = await this.smartApi.generateSession(
         env.ANGELONE_CLIENT_CODE,
         env.ANGELONE_PIN,
         otp
       );
 
-      if (this.smartApi.access_token) {
+      if (res && res.status) {
         this.isAuthenticated = true;
-        console.log('AngelOne authentication successful.');
+        this.activeClientCode = env.ANGELONE_CLIENT_CODE; // Reset to env on fallback
+        console.log('AngelOne env-based authentication successful.');
+        this.startWebSocket();
         return true;
       }
       
-      console.warn('AngelOne auth failed. No access token generated.');
+      console.warn('AngelOne auth failed:', res ? res.message : 'No access token generated.');
       return false;
     } catch (error) {
       console.error('AngelOne auth error:', error);
@@ -46,8 +118,8 @@ export class AngelOneService {
   }
 
   async getHistoricalData(symbol: string): Promise<any[]> {
-    if (!this.isAuthenticated) await this.authenticate();
     if (!this.isAuthenticated) {
+        console.warn('Cannot fetch historical data: Not authenticated via UI yet.');
         return [];
     }
 
@@ -80,6 +152,7 @@ export class AngelOneService {
       const res = await this.smartApi.getCandleData(payload);
       if (res && res.status && res.data) {
         return res.data.map((candle: any[]) => ({
+            timestamp: candle[0],
             open: candle[1],
             high: candle[2],
             low: candle[3],
@@ -95,8 +168,8 @@ export class AngelOneService {
   }
 
   async getOptionsData(): Promise<any[]> {
-    if (!this.isAuthenticated) await this.authenticate();
     if (!this.isAuthenticated) {
+        console.warn('Cannot fetch options data: Not authenticated via UI yet.');
         return [];
     }
 
