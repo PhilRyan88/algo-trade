@@ -8,6 +8,6 @@ export const connectDB = async (): Promise<void> => {
   } catch (error) {
     console.error(`❌ Error connecting to MongoDB! Check your MONGO_URI environment variable.`);
     console.error(`Error details: ${(error as Error).message}`);
-    process.exit(1);
+    console.warn(`⚠️ Continuing without database connection for Angel One testing.`);
   }
 };

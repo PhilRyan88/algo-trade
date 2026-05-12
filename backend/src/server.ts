@@ -3,6 +3,7 @@ import app from './app';
 import { connectDB } from './config/db';
 import { env } from './config/env';
 import { setupCronJobs } from './cron/scanner';
+import { angelOneService } from './services/angelOneService';
 
 const startServer = async () => {
   console.log('🚀 Server starting process initiated...');
@@ -22,8 +23,22 @@ const startServer = async () => {
 
     wss.on('connection', (ws) => {
       console.log('🔌 New WebSocket connection');
+      
+      const marketDataListener = (data: any) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'market_data', data }));
+        }
+      };
+
+      angelOneService.on('market_data', marketDataListener);
+
       ws.on('message', (message) => {
-        ws.send(`Received: ${message}`);
+        const msg = message.toString();
+        if (msg === 'ping') ws.send('pong');
+      });
+
+      ws.on('close', () => {
+        angelOneService.off('market_data', marketDataListener);
       });
     });
 

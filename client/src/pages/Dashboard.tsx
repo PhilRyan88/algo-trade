@@ -1,6 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import React from 'react';
-import { useGetBreakoutsQuery, useGetDividendsQuery, useGetOptionsQuery } from '../features/api/apiSlice';
+import { useGetBreakoutsQuery, useGetOptionsQuery } from '../features/market/marketApiSlice';
+import { useGetDividendsQuery } from '../features/dividends/dividendApiSlice';
 import { TrendingUp, DollarSign, Zap, Calendar, Target, ShieldAlert } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -75,8 +76,8 @@ export default function Dashboard() {
       {/* Breakouts Table */}
       <section className="space-y-4">
         <h2 className="text-xl font-bold tracking-tight">Technical Breakout Signals</h2>
-        <div className="glass-card overflow-hidden">
-          <table className="w-full text-left">
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="bg-white/5 border-b border-white/5">
                 <th className="px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Symbol</th>
