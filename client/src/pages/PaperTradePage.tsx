@@ -1,205 +1,372 @@
-import { useState } from 'react';
-import { Target, TrendingUp, AlertCircle, TrendingDown, DollarSign } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Target, TrendingUp, AlertCircle, TrendingDown, Zap, Power, BarChart3, Clock, Trophy } from 'lucide-react';
 
-interface Position {
-  id: string;
+interface Trade {
+  _id: string;
   symbol: string;
   type: 'BUY' | 'SELL';
-  quantity: number;
+  strategy: string;
   entryPrice: number;
-  currentPrice: number;
+  exitPrice: number | null;
+  stopLoss: number;
+  target: number;
+  quantity: number;
   pnl: number;
+  status: 'OPEN' | 'TARGET_HIT' | 'SL_HIT' | 'CLOSED';
+  confidence: number;
+  reason: string;
+  openedAt: string;
+  closedAt: string | null;
 }
 
+interface TodaySummary {
+  totalTrades: number;
+  openTrades: number;
+  closedTrades: number;
+  totalPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: string;
+}
+
+interface Stats {
+  totalTrades: number;
+  totalPnl: number;
+  startingBalance: number;
+  currentBalance: number;
+  winCount: number;
+  lossCount: number;
+  winRate: string;
+  avgWin: string;
+  avgLoss: string;
+  strategies: Record<string, { count: number; pnl: number; wins: number }>;
+  openTrades: number;
+}
+
+const STRATEGY_COLORS: Record<string, string> = {
+  FVG: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+  LIQUIDITY_SWEEP: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  BREAKOUT: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+  EMA_CROSSOVER: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
+};
+
+const STRATEGY_LABELS: Record<string, string> = {
+  FVG: 'Fair Value Gap',
+  LIQUIDITY_SWEEP: 'Liquidity Sweep',
+  BREAKOUT: 'Breakout',
+  EMA_CROSSOVER: 'EMA Crossover',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  OPEN: 'bg-blue-500/15 text-blue-400',
+  TARGET_HIT: 'bg-emerald-500/15 text-emerald-400',
+  SL_HIT: 'bg-red-500/15 text-red-400',
+  CLOSED: 'bg-gray-500/15 text-gray-400',
+};
+
 export default function PaperTradePage() {
-  const [symbol, setSymbol] = useState('NIFTY');
-  const [quantity, setQuantity] = useState('50');
-  const [orderType, setOrderType] = useState<'BUY' | 'SELL'>('BUY');
-  const [positions, setPositions] = useState<Position[]>([
-    {
-      id: '1',
-      symbol: 'RELIANCE',
-      type: 'BUY',
-      quantity: 100,
-      entryPrice: 2950.50,
-      currentPrice: 2980.00,
-      pnl: 2950.00
-    },
-    {
-      id: '2',
-      symbol: 'BANKNIFTY 46000 CE',
-      type: 'SELL',
-      quantity: 150,
-      entryPrice: 320.00,
-      currentPrice: 345.50,
-      pnl: -3825.00
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [summary, setSummary] = useState<TodaySummary | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState<'today' | 'history'>('today');
+
+  const fetchToday = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/today`);
+      const json = await res.json();
+      if (json.success) {
+        setTrades(json.data.trades);
+        setSummary(json.data.summary);
+      }
+    } catch (err) {
+      console.error('Failed to fetch today trades', err);
     }
-  ]);
+  };
 
-  const handleTrade = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newPosition: Position = {
-      id: Math.random().toString(),
-      symbol: symbol.toUpperCase(),
-      type: orderType,
-      quantity: Number(quantity),
-      entryPrice: 22000, // Mock entry price
-      currentPrice: 22000,
-      pnl: 0
+  const fetchStats = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/stats`);
+      const json = await res.json();
+      if (json.success) setStats(json.data);
+    } catch (err) {
+      console.error('Failed to fetch stats', err);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/history?limit=100`);
+      const json = await res.json();
+      if (json.success) setTrades(json.data);
+    } catch (err) {
+      console.error('Failed to fetch history', err);
+    }
+  };
+
+  const fetchEngineStatus = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/engine/status`);
+      const json = await res.json();
+      if (json.success) setIsEngineRunning(json.isRunning);
+    } catch (err) {
+      console.error('Failed to fetch engine status', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchEngineStatus();
+    fetchToday();
+    fetchStats();
+
+    // Auto-refresh every 30 seconds ONLY if engine is running
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (isEngineRunning) {
+      interval = setInterval(() => {
+        if (activeTab === 'today') fetchToday();
+        fetchStats();
+      }, 30000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
     };
-    setPositions([...positions, newPosition]);
+  }, [isEngineRunning, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'today') fetchToday();
+    else fetchHistory();
+  }, [activeTab]);
+
+  const toggleEngine = async () => {
+    const action = isEngineRunning ? 'stop' : 'start';
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/trades/engine/${action}`, { method: 'POST' });
+      setIsEngineRunning(!isEngineRunning);
+    } catch (err) {
+      console.error('Failed to toggle engine', err);
+    }
   };
 
-  const closePosition = (id: string) => {
-    setPositions(positions.filter(p => p.id !== id));
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const totalPnL = positions.reduce((acc, pos) => acc + pos.pnl, 0);
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
             <Target className="w-6 h-6 text-primary" />
-            Paper Trading
+            Automated Paper Trading
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Execute virtual trades to test your strategies</p>
+          <p className="text-sm text-muted-foreground mt-1">AI-powered strategy execution during market hours</p>
         </div>
-        
-        <div className="bg-[#0F0F0F] border border-white/5 rounded-2xl p-4 flex items-center gap-6 shadow-xl">
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Available Margin</p>
-            <p className="text-xl font-bold text-white font-mono">₹ 10,00,000</p>
-          </div>
-          <div className="w-px h-10 bg-white/10" />
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Net P&L</p>
-            <p className={`text-xl font-bold font-mono flex items-center gap-1 ${totalPnL >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {totalPnL >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-              ₹ {Math.abs(totalPnL).toFixed(2)}
-            </p>
-          </div>
-        </div>
+
+        <button
+          onClick={toggleEngine}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-lg ${
+            isEngineRunning
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+              : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+          }`}
+        >
+          {isEngineRunning ? <Zap className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+          {isEngineRunning ? 'Engine Running' : 'Engine Stopped'}
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Order Form */}
-        <div className="bg-[#0F0F0F]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl h-fit">
-          <h3 className="text-lg font-semibold text-white mb-6">Place New Order</h3>
-          
-          <form onSubmit={handleTrade} className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setOrderType('BUY')}
-                className={`py-3 rounded-xl font-semibold transition-all ${
-                  orderType === 'BUY' 
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)]' 
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                }`}
-              >
-                BUY
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrderType('SELL')}
-                className={`py-3 rounded-xl font-semibold transition-all ${
-                  orderType === 'SELL' 
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                }`}
-              >
-                SELL
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-400 ml-1">Symbol</label>
-              <input 
-                type="text"
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono uppercase"
-                placeholder="e.g. NIFTY, RELIANCE"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-400 ml-1">Quantity</label>
-              <input 
-                type="number"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-              />
-            </div>
-
-            <button 
-              type="submit" 
-              className={`w-full py-4 font-bold rounded-xl transition-all shadow-lg text-black ${
-                orderType === 'BUY' 
-                ? 'bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
-                : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)] text-white'
-              }`}
-            >
-              EXECUTE {orderType}
-            </button>
-          </form>
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4 ring-1 ring-white/5">
+            <p className="text-xs text-gray-500 mb-1">Current Balance</p>
+            <p className="text-xl font-bold text-white font-mono">
+              ₹{stats.currentBalance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Total P&L</p>
+            <p className={`text-xl font-bold font-mono ${stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {stats.totalPnl >= 0 ? '+' : ''}₹{stats.totalPnl.toFixed(0)}
+            </p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Win Rate</p>
+            <p className="text-xl font-bold text-white font-mono">{stats.winRate}%</p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Total Trades</p>
+            <p className="text-xl font-bold text-white font-mono">{stats.totalTrades}</p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Avg Win</p>
+            <p className="text-xl font-bold text-emerald-400 font-mono">+₹{parseFloat(stats.avgWin).toFixed(0)}</p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Avg Loss</p>
+            <p className="text-xl font-bold text-red-400 font-mono">₹{parseFloat(stats.avgLoss).toFixed(0)}</p>
+          </div>
         </div>
+      )}
 
-        {/* Active Positions */}
-        <div className="lg:col-span-2 bg-[#0F0F0F]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl">
-          <h3 className="text-lg font-semibold text-white mb-6">Open Positions</h3>
-          
-          {positions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <AlertCircle className="w-12 h-12 text-gray-600 mb-3" />
-              <p className="text-gray-400">No active positions</p>
-              <p className="text-sm text-gray-600 mt-1">Place an order to start trading</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {positions.map((pos) => (
-                <div key={pos.id} className="bg-black/40 border border-white/5 rounded-2xl p-5 flex items-center justify-between group hover:border-white/10 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-1.5 h-12 rounded-full ${pos.type === 'BUY' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${pos.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                          {pos.type}
-                        </span>
-                        <h4 className="font-bold text-white">{pos.symbol}</h4>
-                      </div>
-                      <p className="text-sm text-gray-400">
-                        Qty: <span className="text-white font-mono">{pos.quantity}</span> • Avg: <span className="font-mono text-white">₹{pos.entryPrice.toFixed(2)}</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-8">
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400 mb-1">Current</p>
-                      <p className="font-mono text-white">₹{pos.currentPrice.toFixed(2)}</p>
-                    </div>
-                    <div className="text-right w-32">
-                      <p className="text-xs text-gray-400 mb-1">P&L</p>
-                      <p className={`font-mono font-bold ${pos.pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {pos.pnl >= 0 ? '+' : ''}₹{pos.pnl.toFixed(2)}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => closePosition(pos.id)}
-                      className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Strategy Performance */}
+      {stats && Object.keys(stats.strategies).length > 0 && (
+        <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-gray-400 mb-4 flex items-center gap-2">
+            <Trophy className="w-4 h-4" /> Strategy Performance
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Object.entries(stats.strategies).map(([strategy, data]) => (
+              <div key={strategy} className={`rounded-xl p-3 border ${STRATEGY_COLORS[strategy] || 'bg-white/5 text-white border-white/10'}`}>
+                <p className="text-xs font-medium mb-1">{STRATEGY_LABELS[strategy] || strategy}</p>
+                <p className={`text-lg font-bold font-mono ${data.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {data.pnl >= 0 ? '+' : ''}₹{data.pnl.toFixed(0)}
+                </p>
+                <p className="text-xs opacity-70 mt-0.5">
+                  {data.wins}/{data.count} wins ({data.count > 0 ? ((data.wins/data.count)*100).toFixed(0) : 0}%)
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* Today Summary Bar */}
+      {summary && activeTab === 'today' && (
+        <div className="bg-[#0F0F0F] border border-white/5 rounded-2xl p-4 flex items-center gap-6 flex-wrap">
+          <div>
+            <p className="text-xs text-gray-500">Today's P&L</p>
+            <p className={`text-lg font-bold font-mono ${summary.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {summary.totalPnl >= 0 ? '+' : ''}₹{summary.totalPnl.toFixed(2)}
+            </p>
+          </div>
+          <div className="w-px h-8 bg-white/10" />
+          <div>
+            <p className="text-xs text-gray-500">Open</p>
+            <p className="text-lg font-bold text-blue-400 font-mono">{summary.openTrades}</p>
+          </div>
+          <div className="w-px h-8 bg-white/10" />
+          <div>
+            <p className="text-xs text-gray-500">W / L</p>
+            <p className="text-lg font-bold font-mono">
+              <span className="text-emerald-400">{summary.winCount}</span>
+              <span className="text-gray-600"> / </span>
+              <span className="text-red-400">{summary.lossCount}</span>
+            </p>
+          </div>
+          <div className="w-px h-8 bg-white/10" />
+          <div>
+            <p className="text-xs text-gray-500">Win Rate</p>
+            <p className="text-lg font-bold text-white font-mono">{summary.winRate}%</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Selector */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveTab('today')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'today'
+              ? 'bg-primary/20 text-primary'
+              : 'text-gray-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Clock className="w-4 h-4 inline mr-1.5" />Today's Trades
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'history'
+              ? 'bg-primary/20 text-primary'
+              : 'text-gray-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 inline mr-1.5" />All History
+        </button>
+      </div>
+
+      {/* Trades Table */}
+      <div className="bg-[#0F0F0F]/80 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden">
+        {trades.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-6">
+            <AlertCircle className="w-12 h-12 text-gray-600 mb-3" />
+            <p className="text-gray-400">No trades yet</p>
+            <p className="text-sm text-gray-600 mt-1">
+              {isEngineRunning
+                ? 'The strategy engine is running and will execute trades during market hours (9:15 AM – 3:20 PM)'
+                : 'Start the engine to begin automated trading'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="text-left p-4 text-gray-500 font-medium">Time</th>
+                  <th className="text-left p-4 text-gray-500 font-medium">Symbol</th>
+                  <th className="text-left p-4 text-gray-500 font-medium">Side</th>
+                  <th className="text-left p-4 text-gray-500 font-medium">Strategy</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">Entry</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">SL</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">Target</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">Exit</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">P&L</th>
+                  <th className="text-center p-4 text-gray-500 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((trade) => (
+                  <tr key={trade._id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="p-4">
+                      <div className="text-white font-mono text-xs">{formatTime(trade.openedAt)}</div>
+                      <div className="text-gray-600 text-xs">{formatDate(trade.openedAt)}</div>
+                    </td>
+                    <td className="p-4 text-white font-semibold">{trade.symbol}</td>
+                    <td className="p-4">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                        trade.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                      }`}>
+                        {trade.type}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className={`text-xs font-medium px-2 py-1 rounded-md border ${
+                        STRATEGY_COLORS[trade.strategy] || 'bg-white/5 text-white border-white/10'
+                      }`}>
+                        {STRATEGY_LABELS[trade.strategy] || trade.strategy}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right text-white font-mono">{trade.entryPrice.toFixed(2)}</td>
+                    <td className="p-4 text-right text-red-400/70 font-mono text-xs">{trade.stopLoss.toFixed(2)}</td>
+                    <td className="p-4 text-right text-emerald-400/70 font-mono text-xs">{trade.target.toFixed(2)}</td>
+                    <td className="p-4 text-right text-white font-mono">
+                      {trade.exitPrice ? trade.exitPrice.toFixed(2) : '—'}
+                    </td>
+                    <td className="p-4 text-right">
+                      <span className={`font-mono font-bold ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {trade.status === 'OPEN' ? '—' : `${trade.pnl >= 0 ? '+' : ''}₹${trade.pnl.toFixed(2)}`}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className={`text-xs font-medium px-2 py-1 rounded-md ${STATUS_COLORS[trade.status]}`}>
+                        {trade.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

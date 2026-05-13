@@ -5,6 +5,7 @@ import dividendRoutes from './routes/dividendRoutes';
 import optionsRoutes from './routes/optionsRoutes';
 import authRoutes from './routes/authRoutes';
 import marketRoutes from './routes/marketRoutes';
+import tradeRoutes from './routes/tradeRoutes';
 
 const app = Fastify({ logger: true });
 
@@ -17,6 +18,7 @@ app.register(dividendRoutes, { prefix: '/api/dividends' });
 app.register(optionsRoutes, { prefix: '/api/options' });
 app.register(authRoutes, { prefix: '/api/auth' });
 app.register(marketRoutes, { prefix: '/api/market' });
+app.register(tradeRoutes, { prefix: '/api/trades' });
 
 // Health check
 app.get('/health', async (request, reply) => {
