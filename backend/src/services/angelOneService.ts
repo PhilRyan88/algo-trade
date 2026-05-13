@@ -10,6 +10,12 @@ export class AngelOneService extends EventEmitter {
   private webSocket: any;
   private isAuthenticated: boolean = false;
   private activeClientCode: string = env.ANGELONE_CLIENT_CODE;
+  private feedToken: string = '';
+  private lastAuthTime: number = 0;
+  private readonly TOKEN_VALIDITY_MS = 8 * 60 * 60 * 1000; // 8 hours conservative
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
@@ -22,13 +28,30 @@ export class AngelOneService extends EventEmitter {
     return this.isAuthenticated;
   }
 
+  isTokenExpired(): boolean {
+    if (!this.lastAuthTime) return true;
+    return Date.now() - this.lastAuthTime > this.TOKEN_VALIDITY_MS;
+  }
+
+  async ensureAuthenticated(): Promise<boolean> {
+    if (this.isAuthenticated && !this.isTokenExpired()) {
+      return true;
+    }
+    // Token likely expired, try silent re-auth
+    console.log('Token expired or not authenticated, attempting silent re-auth...');
+    return this.authenticate();
+  }
+
   async loginWithCredentials(clientCode: string, pin: string, totpCode: string): Promise<boolean> {
     try {
       console.log('Authenticating manually with AngelOne SmartAPI...');
       const res = await this.smartApi.generateSession(clientCode, pin, totpCode);
       if (res && res.status) {
         this.isAuthenticated = true;
+        this.lastAuthTime = Date.now();
         this.activeClientCode = clientCode; // Store dynamic client code
+        // Ensure feedToken is retrieved properly since SDK generateSession doesn't store it on the object
+        this.feedToken = res.data?.feedToken || '';
         console.log('Manual AngelOne authentication successful.');
         this.startWebSocket();
         return true;
@@ -45,43 +68,102 @@ export class AngelOneService extends EventEmitter {
     this.isAuthenticated = false;
     this.smartApi.access_token = null;
     this.activeClientCode = '';
+    this.feedToken = '';
+    
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.webSocket) {
       try {
-        // Disconnect logic if available in SDK, else just nullify
+        this.webSocket.close();
+      } catch (e) {
+        console.error('Error closing WebSocket:', e);
+      } finally {
         this.webSocket = null;
-      } catch (e) {}
+      }
     }
     console.log('Logged out and WebSocket disconnected.');
   }
 
   startWebSocket() {
-    if (!this.isAuthenticated || !this.smartApi.access_token) return;
+    if (!this.isAuthenticated || !this.smartApi.access_token || !this.feedToken) {
+      console.warn('Cannot start WebSocket: Not fully authenticated or missing tokens.');
+      return;
+    }
 
+    // Clear any existing socket
+    if (this.webSocket) {
+      try {
+        this.webSocket.close();
+      } catch (e) {}
+    }
+
+    console.log('Initializing AngelOne WebSocketV2...');
     this.webSocket = new WebSocketV2({
-      jwttoken: this.smartApi.access_token,
+      jwttoken: this.smartApi.access_token.startsWith('Bearer') ? this.smartApi.access_token : 'Bearer ' + this.smartApi.access_token,
       apikey: env.ANGELONE_API_KEY,
       clientcode: this.activeClientCode, // Use dynamically stored client code
-      feedtype: this.smartApi.feedToken
+      feedtype: this.feedToken
     });
+
+    this.webSocket.customError(); // Enable custom error handler as per SDK docs
 
     this.webSocket.connect().then(() => {
-      console.log('AngelOne WebSocketV2 connected.');
+      console.log('✅ AngelOne WebSocketV2 connected.');
+      this.reconnectAttempts = 0; // Reset on successful connect
       
-      this.webSocket.fetchData({
+      // Subscribe to instruments
+      const subscriptionPayload = {
         correlationID: 'abc1234567',
-        action: 1,
-        mode: 3,
-        exchangeType: 1,
-        tokens: ['26000', '26009']
-      });
+        action: 1, // Subscribe
+        mode: 3, // SnapQuote (MODE.SnapQuote = 3)
+        exchangeType: 1, // NSE CM (EXCHANGES.nse_cm = 1)
+        tokens: ['26000', '26009'] // NIFTY and BANKNIFTY
+      };
+
+      console.log('Subscribing to market data:', subscriptionPayload);
+      this.webSocket.fetchData(subscriptionPayload);
 
       this.webSocket.on('tick', (receiveData: any) => {
-        console.log('Live Tick Received:', receiveData.length > 0 ? receiveData[0].exchangeType : 'Unknown');
+        if (!receiveData) return;
+        
+        // Broadcast tick via EventEmitter
         this.emit('market_data', receiveData);
       });
+      
     }).catch((err: any) => {
-      console.error('WebSocket Error:', err);
+      console.error('❌ WebSocket Connection Error:', err);
+      this.handleReconnect();
     });
+
+    // The SDK triggers these events internally. Though WebSocketV2 doesn't expose raw close/error normally, 
+    // it handles reconnect itself if configure properly, but we can do it manually on failures.
+  }
+
+  private handleReconnect() {
+    if (!this.isAuthenticated) return;
+
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
+      console.log(`⚠️ Attempting WebSocket reconnect in ${delay}ms (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+      
+      if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = setTimeout(() => {
+        this.startWebSocket();
+      }, delay);
+    } else {
+      console.error('❌ Max WebSocket reconnect attempts reached. Attempting full re-authentication...');
+      this.authenticate().then(success => {
+        if (success) {
+          console.log('✅ Auto re-authenticated and WebSocket restarted.');
+        } else {
+          console.error('❌ Auto re-authentication failed. Manual login required.');
+        }
+      });
+    }
   }
 
   async authenticate(): Promise<boolean> {
@@ -91,7 +173,7 @@ export class AngelOneService extends EventEmitter {
     }
 
     try {
-      console.log('Authenticating with AngelOne SmartAPI...');
+      console.log('Authenticating with AngelOne SmartAPI using environment credentials...');
       
       const { otp } = await TOTP.generate(env.ANGELONE_TOTP_SECRET);
 
@@ -103,7 +185,9 @@ export class AngelOneService extends EventEmitter {
 
       if (res && res.status) {
         this.isAuthenticated = true;
+        this.lastAuthTime = Date.now();
         this.activeClientCode = env.ANGELONE_CLIENT_CODE; // Reset to env on fallback
+        this.feedToken = res.data?.feedToken || '';
         console.log('AngelOne env-based authentication successful.');
         this.startWebSocket();
         return true;
@@ -118,38 +202,50 @@ export class AngelOneService extends EventEmitter {
   }
 
   async getHistoricalData(symbol: string): Promise<any[]> {
-    if (!this.isAuthenticated) {
-        console.warn('Cannot fetch historical data: Not authenticated via UI yet.');
-        return [];
+    const isReady = await this.ensureAuthenticated();
+    if (!isReady) {
+      console.warn('Cannot fetch historical data: Not authenticated.');
+      return [];
     }
 
     try {
-      // Map common symbols to NSE tokens
+      // For Historical API, Angel One requires indices to be prefixed with '999'
       const symbolMap: Record<string, string> = {
-        'AAPL': '3045', // Using SBIN as proxy since US stocks not in NSE
-        'MSFT': '2885', // Reliance
-        'TSLA': '3456', // TATAMOTORS
-        'AMZN': '11536', // TCS
-        'GOOGL': '10940',// DIVISLAB
-        'NVDA': '13538', // TECHM
-        'NIFTY': '26000',
-        'BANKNIFTY': '26009'
+        'NIFTY': '99926000',
+        'BANKNIFTY': '99926009'
       };
 
-      const token = symbolMap[symbol] || '3045';
+      const token = symbolMap[symbol] || '99926000';
       const toDate = new Date();
       const fromDate = new Date();
-      fromDate.setDate(toDate.getDate() - 30);
+      fromDate.setDate(toDate.getDate() - 3);
+
+      const formatDate = (d: Date, time: string) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day} ${time}`;
+      };
 
       const payload = {
         exchange: "NSE",
         symboltoken: token,
-        interval: "ONE_DAY",
-        fromdate: fromDate.toISOString().split('T')[0] + " 09:15",
-        todate: toDate.toISOString().split('T')[0] + " 15:30"
+        interval: "ONE_MINUTE",
+        fromdate: formatDate(fromDate, "09:15"),
+        todate: formatDate(toDate, "15:30")
       };
 
-      const res = await this.smartApi.getCandleData(payload);
+      let res = await this.smartApi.getCandleData(payload);
+      
+      // Handle expired token or session issues — retry once after re-auth
+      if (res && res.status === false) {
+        console.warn('Historical API failed, re-authenticating...', res.message);
+        const authSuccess = await this.authenticate();
+        if (authSuccess) {
+           res = await this.smartApi.getCandleData(payload);
+        }
+      }
+
       if (res && res.status && res.data) {
         return res.data.map((candle: any[]) => ({
             timestamp: candle[0],
@@ -161,7 +257,7 @@ export class AngelOneService extends EventEmitter {
         }));
       }
       return [];
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to get historical data from Smart API', e);
       return [];
     }

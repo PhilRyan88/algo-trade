@@ -4,6 +4,7 @@ import { connectDB } from './config/db';
 import { env } from './config/env';
 import { setupCronJobs } from './cron/scanner';
 import { angelOneService } from './services/angelOneService';
+import { strategyEngine } from './services/strategyEngine';
 
 const startServer = async () => {
   console.log('🚀 Server starting process initiated...');
@@ -41,6 +42,9 @@ const startServer = async () => {
         angelOneService.off('market_data', marketDataListener);
       });
     });
+
+    // 5. Strategy Engine is ready (Manual start required)
+    console.log('🤖 Strategy Engine initialized in STOPPED state. Start it manually from the dashboard.');
 
   } catch (error) {
     console.error('❌ CRITICAL: Failed to start server:', error);

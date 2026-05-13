@@ -33,9 +33,7 @@ export default function LoginPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (isChecking) {
-    return null;
-  }
+
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] p-4">

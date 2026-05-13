@@ -28,7 +28,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/status', async (request, reply) => {
-    const isAuthenticated = angelOneService.getIsAuthenticated();
+    // If authenticated but token may be expired, attempt silent re-auth
+    const isAuthenticated = await angelOneService.ensureAuthenticated();
     return { isAuthenticated };
   });
 
