@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { angelOneService } from '../services/angelOneService';
+import { strategyEngine } from '../services/strategyEngine';
 import { env } from '../config/env';
 
 export default async function authRoutes(fastify: FastifyInstance) {
@@ -28,13 +29,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/status', async (request, reply) => {
-    // If authenticated but token may be expired, attempt silent re-auth
-    const isAuthenticated = await angelOneService.ensureAuthenticated();
-    return { isAuthenticated };
+    const isAuth = angelOneService.getIsAuthenticated();
+    console.log(`[AUTH_STATUS] Returning ${isAuth} to client`);
+    return { isAuthenticated: isAuth };
   });
 
   fastify.post('/logout', async (request, reply) => {
-    angelOneService.logout();
+    console.log('[LOGOUT] User initiated disconnect');
+    strategyEngine.stop();
+    await angelOneService.logout();
+    console.log('[LOGOUT] Process complete');
     return { success: true, message: 'Logged out successfully' };
   });
 }

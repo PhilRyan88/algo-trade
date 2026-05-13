@@ -1,12 +1,15 @@
 import { LayoutDashboard, TrendingUp, DollarSign, Settings, Bell, Search, Activity, LineChart, LogOut, Menu, X, Plus } from 'lucide-react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { useDispatch } from 'react-redux';
 import { useLogoutMutation } from '../../features/auth/authApiSlice';
+import { apiSlice } from '../../features/api/apiSlice';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [speedDialOpen, setSpeedDialOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const [logout] = useLogoutMutation();
 
   // Close speed dial on navigation
@@ -17,10 +20,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const handleLogout = async () => {
     try {
       await logout().unwrap();
-      navigate('/');
+      // Clear RTK Query cache to remove auth and market data
+      dispatch(apiSlice.util.resetApiState());
+      navigate('/', { replace: true });
     } catch (error) {
       console.error('Logout failed:', error);
-      navigate('/'); // Force redirect anyway
+      dispatch(apiSlice.util.resetApiState());
+      navigate('/', { replace: true });
     }
   };
 

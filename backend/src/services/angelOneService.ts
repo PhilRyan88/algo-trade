@@ -9,7 +9,8 @@ export class AngelOneService extends EventEmitter {
   private smartApi: any;
   private webSocket: any;
   private isAuthenticated: boolean = false;
-  private activeClientCode: string = env.ANGELONE_CLIENT_CODE;
+  private sessionEstablished: boolean = false;
+  private activeClientCode: string = '';
   private feedToken: string = '';
   private lastAuthTime: number = 0;
   private readonly TOKEN_VALIDITY_MS = 8 * 60 * 60 * 1000; // 8 hours conservative
@@ -25,6 +26,7 @@ export class AngelOneService extends EventEmitter {
   }
 
   getIsAuthenticated() {
+    console.log(`🤖 AngelOne Status Check: isAuthenticated=${this.isAuthenticated}, sessionEstablished=${this.sessionEstablished}`);
     return this.isAuthenticated;
   }
 
@@ -37,17 +39,26 @@ export class AngelOneService extends EventEmitter {
     if (this.isAuthenticated && !this.isTokenExpired()) {
       return true;
     }
+
+    // Only allow auto-refresh if a session was manually established once 
+    if (!this.sessionEstablished) {
+      console.log('🤖 AngelOne: Auto-auth blocked (sessionEstablished=false)');
+      return false;
+    }
+
     // Token likely expired, try silent re-auth
-    console.log('Token expired or not authenticated, attempting silent re-auth...');
+    console.log('🤖 AngelOne: Session expired, attempting silent re-auth...');
     return this.authenticate();
   }
 
   async loginWithCredentials(clientCode: string, pin: string, totpCode: string): Promise<boolean> {
     try {
-      console.log('Authenticating manually with AngelOne SmartAPI...');
+      console.log('🤖 AngelOne: Manual login attempt for:', clientCode);
       const res = await this.smartApi.generateSession(clientCode, pin, totpCode);
       if (res && res.status) {
+        console.log('✅ AngelOne: Manual login SUCCESS');
         this.isAuthenticated = true;
+        this.sessionEstablished = true;
         this.lastAuthTime = Date.now();
         this.activeClientCode = clientCode; // Store dynamic client code
         // Ensure feedToken is retrieved properly since SDK generateSession doesn't store it on the object
@@ -64,11 +75,27 @@ export class AngelOneService extends EventEmitter {
     }
   }
 
-  logout() {
+  async logout() {
+    console.log('🤖 AngelOne: Initiating thorough logout...');
+    
+    // 1. Clear local state IMMEDIATELY to prevent race conditions
     this.isAuthenticated = false;
-    this.smartApi.access_token = null;
+    this.sessionEstablished = false;
     this.activeClientCode = '';
     this.feedToken = '';
+    
+    // 2. Call Angel One Logout API if we had a session (don't let it block local cleanup)
+    if (this.smartApi.access_token) {
+      try {
+        const clientCode = env.ANGELONE_CLIENT_CODE; // Fallback or store locally
+        await this.smartApi.logout(clientCode);
+        console.log('✅ AngelOne: API session terminated.');
+      } catch (e) {
+        console.warn('⚠️ AngelOne: Logout API call failed (session might already be dead):', e);
+      }
+    }
+
+    this.smartApi.access_token = null;
     
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -79,12 +106,12 @@ export class AngelOneService extends EventEmitter {
       try {
         this.webSocket.close();
       } catch (e) {
-        console.error('Error closing WebSocket:', e);
+        console.error('⚠️ AngelOne: Error closing WebSocket:', e);
       } finally {
         this.webSocket = null;
       }
     }
-    console.log('Logged out and WebSocket disconnected.');
+    console.log('✅ AngelOne: Application logout complete and WebSocket disconnected.');
   }
 
   startWebSocket() {
@@ -167,8 +194,16 @@ export class AngelOneService extends EventEmitter {
   }
 
   async authenticate(): Promise<boolean> {
+    console.log('🤖 AngelOne: authenticate() called. Checking sessionEstablished...');
+    // Only allow auto-auth if we have an established session
+    if (!this.sessionEstablished) {
+      console.log('🤖 AngelOne: authenticate() REJECTED - sessionEstablished is false.');
+      return false;
+    }
+    
+    // Only allow auto-auth if we have the necessary environment variables
     if (!env.ANGELONE_API_KEY || !env.ANGELONE_CLIENT_CODE || !env.ANGELONE_PIN || !env.ANGELONE_TOTP_SECRET) {
-      console.warn('AngelOne credentials not fully provided. Cannot authenticate.');
+      console.warn('🤖 AngelOne: Credentials missing in .env. Auto-auth disabled.');
       return false;
     }
 
