@@ -21,6 +21,10 @@ app.register(marketRoutes, { prefix: '/api/market' });
 app.register(tradeRoutes, { prefix: '/api/trades' });
 
 // Health check
+app.get('/api/version', async () => {
+  return { version: '1.1.0-ml-integrated', timestamp: new Date().toISOString() };
+});
+
 app.get('/health', async (request, reply) => {
   return { status: 'ok' };
 });

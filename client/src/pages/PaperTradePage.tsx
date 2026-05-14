@@ -14,9 +14,17 @@ interface Trade {
   pnl: number;
   status: 'OPEN' | 'TARGET_HIT' | 'SL_HIT' | 'CLOSED';
   confidence: number;
+  mlScore: number;
   reason: string;
   openedAt: string;
   closedAt: string | null;
+}
+
+interface MlStatus {
+  isLoaded: boolean;
+  lastAccuracy: number;
+  lastLoss: number;
+  samplesCount: number;
 }
 
 interface TodaySummary {
@@ -70,6 +78,10 @@ export default function PaperTradePage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [activeTab, setActiveTab] = useState<'today' | 'history'>('today');
+  const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
+  const [showTrainModal, setShowTrainModal] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const fetchToday = async () => {
     try {
@@ -114,10 +126,44 @@ export default function PaperTradePage() {
     }
   };
 
+  const fetchMlStatus = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/ml/status`);
+      const json = await res.json();
+      if (json.success) setMlStatus(json.data);
+    } catch (err) {
+      console.error('Failed to fetch ML status', err);
+    }
+  };
+
+  const trainModel = async () => {
+    setIsTraining(true);
+    setShowTrainModal(false);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/ml/train/backtest`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      
+      if (json.success) {
+        setNotification({ type: 'success', message: 'Backtest training started! This will take about a minute.' });
+      } else {
+        setNotification({ type: 'error', message: json.message || 'Failed to start training' });
+      }
+    } catch (err) {
+      setNotification({ type: 'error', message: 'Network error or server unavailable' });
+    } finally {
+      setIsTraining(false);
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
   useEffect(() => {
     fetchEngineStatus();
     fetchToday();
     fetchStats();
+    fetchMlStatus();
 
     // Auto-refresh every 30 seconds ONLY if engine is running
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -170,18 +216,53 @@ export default function PaperTradePage() {
           <p className="text-sm text-muted-foreground mt-1">AI-powered strategy execution during market hours</p>
         </div>
 
-        <button
-          onClick={toggleEngine}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-lg ${
-            isEngineRunning
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
-              : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
-          }`}
-        >
-          {isEngineRunning ? <Zap className="w-4 h-4" /> : <Power className="w-4 h-4" />}
-          {isEngineRunning ? 'Engine Running' : 'Engine Stopped'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowTrainModal(true)}
+            disabled={isTraining}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border border-white/10 ${
+              isTraining ? 'bg-white/5 text-gray-500' : 'bg-white/5 text-gray-300 hover:bg-white/10'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            {isTraining ? 'Training...' : 'Train Model'}
+          </button>
+          <button
+            onClick={toggleEngine}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-lg ${
+              isEngineRunning
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+                : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+            }`}
+          >
+            {isEngineRunning ? <Zap className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+            {isEngineRunning ? 'Engine Running' : 'Engine Stopped'}
+          </button>
+        </div>
       </div>
+
+      {/* ML Model Status */}
+      {mlStatus && (
+        <div className="bg-[#0F0F0F]/40 border border-white/5 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`w-2 h-2 rounded-full ${mlStatus.isLoaded ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`} />
+            <div>
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Signal Scorer (TF.js)</span>
+              <p className="text-sm text-gray-300">
+                {mlStatus.isLoaded 
+                  ? `Model Active • Accuracy: ${(mlStatus.lastAccuracy * 100).toFixed(1)}% • Samples: ${mlStatus.samplesCount}`
+                  : 'Model not trained yet'}
+              </p>
+            </div>
+          </div>
+          {mlStatus.lastLoss > 0 && (
+            <div className="text-right">
+              <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Loss</span>
+              <p className="text-sm font-mono text-gray-400">{mlStatus.lastLoss.toFixed(4)}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Cards */}
       {stats && (
@@ -319,6 +400,7 @@ export default function PaperTradePage() {
                   <th className="text-right p-4 text-gray-500 font-medium">SL</th>
                   <th className="text-right p-4 text-gray-500 font-medium">Target</th>
                   <th className="text-right p-4 text-gray-500 font-medium">Exit</th>
+                  <th className="text-right p-4 text-gray-500 font-medium">ML Score</th>
                   <th className="text-right p-4 text-gray-500 font-medium">P&L</th>
                   <th className="text-center p-4 text-gray-500 font-medium">Status</th>
                 </tr>
@@ -352,6 +434,14 @@ export default function PaperTradePage() {
                       {trade.exitPrice ? trade.exitPrice.toFixed(2) : '—'}
                     </td>
                     <td className="p-4 text-right">
+                      <div className={`text-xs font-bold font-mono ${
+                        trade.mlScore >= 0.6 ? 'text-emerald-400' : 
+                        trade.mlScore >= 0.4 ? 'text-amber-400' : 'text-red-400'
+                      }`}>
+                        {(trade.mlScore * 100).toFixed(0)}%
+                      </div>
+                    </td>
+                    <td className="p-4 text-right">
                       <span className={`font-mono font-bold ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {trade.status === 'OPEN' ? '—' : `${trade.pnl >= 0 ? '+' : ''}₹${trade.pnl.toFixed(2)}`}
                       </span>
@@ -368,6 +458,57 @@ export default function PaperTradePage() {
           </div>
         )}
       </div>
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed bottom-6 right-6 z-50 px-6 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl animate-in slide-in-from-bottom-4 duration-300 ${
+          notification.type === 'success' 
+            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
+            : 'bg-red-500/20 border-red-500/30 text-red-400'
+        }`}>
+          <div className="flex items-center gap-3">
+            {notification.type === 'success' ? <Trophy className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            <p className="font-medium">{notification.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showTrainModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowTrainModal(false)} />
+          <div className="bg-[#0F0F0F] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.5)] relative animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
+                <BarChart3 className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Train ML Model</h3>
+                <p className="text-sm text-gray-400 mt-1">Backtest historical data</p>
+              </div>
+            </div>
+            
+            <p className="text-gray-300 text-sm leading-relaxed mb-8">
+              This will fetch the last 30 days of market data and run all strategies to generate training samples. 
+              The engine will "learn" which market conditions lead to profitable trades.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowTrainModal(false)}
+                className="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-400 hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={trainModel}
+                className="flex-1 px-4 py-3 rounded-xl bg-primary text-black font-bold hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]"
+              >
+                Start Training
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

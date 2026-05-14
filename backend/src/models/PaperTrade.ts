@@ -12,6 +12,7 @@ export interface IPaperTrade extends Document {
   pnl: number;
   status: 'OPEN' | 'TARGET_HIT' | 'SL_HIT' | 'CLOSED';
   confidence: number;
+  mlScore: number;
   reason: string;
   openedAt: Date;
   closedAt: Date | null;
@@ -29,6 +30,7 @@ const PaperTradeSchema: Schema = new Schema({
   pnl: { type: Number, default: 0 },
   status: { type: String, enum: ['OPEN', 'TARGET_HIT', 'SL_HIT', 'CLOSED'], default: 'OPEN' },
   confidence: { type: Number, default: 0 },
+  mlScore: { type: Number, default: 0 },
   reason: { type: String, default: '' },
   openedAt: { type: Date, default: Date.now },
   closedAt: { type: Date, default: null },

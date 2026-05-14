@@ -1,8 +1,26 @@
 import { FastifyInstance } from 'fastify';
 import { PaperTrade } from '../models/PaperTrade';
 import { strategyEngine } from '../services/strategyEngine';
+import { mlService } from '../services/mlService';
+import { backtestService } from '../services/backtestService';
 
 export default async function tradeRoutes(fastify: FastifyInstance) {
+  console.log('🔌 Registering Trade Routes (including ML endpoints)...');
+
+  // ML Endpoints (at the top to avoid conflicts)
+  fastify.get('/ml/status', async () => {
+    return { success: true, data: mlService.getStatus() };
+  });
+
+  fastify.post('/ml/train/backtest', async () => {
+    console.log('🤖 ML: Received backtest training request');
+    // Start training in background
+    backtestService.runBacktestTraining()
+      .then(result => console.log('✅ ML: Backtest training complete:', result))
+      .catch(err => console.error('❌ ML: Backtest training failed:', err));
+
+    return { success: true, message: 'Backtest training started in background' };
+  });
 
   // Get all trades (with optional filters)
   fastify.get('/history', async (request, reply) => {
