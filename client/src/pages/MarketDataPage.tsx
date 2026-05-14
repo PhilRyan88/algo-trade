@@ -4,7 +4,7 @@ import {
   Tooltip, ResponsiveContainer, Legend, Customized
 } from 'recharts';
 import { Activity, SignalHigh, ServerCrash, BarChart3, TrendingUp, CandlestickChart } from 'lucide-react';
-import { parseISO, format, isToday } from 'date-fns';
+import { parseISO, format } from 'date-fns';
 
 interface MarketDataPoint {
   time: string;
@@ -57,7 +57,7 @@ const CustomTooltip = ({ active, payload, label, chartType }: any) => {
           {data.volume > 0 && (
             <div className="flex justify-between gap-6">
               <span className="text-gray-500">Volume</span>
-              <span className="text-gray-300 font-mono">{data.volume?.toLocaleString()}</span>
+              <span className="text-gray-300 font-mono">{data.volume}</span>
             </div>
           )}
         </div>
@@ -134,14 +134,36 @@ export default function MarketDataPage() {
 
   const symbolRef = useRef(symbol);
 
-  const todayData = useMemo(() => {
-    return data.filter(d => {
-      try { return isToday(parseISO(d.time)); }
-      catch { return true; }
-    });
+  // Find the latest trading day in the data and show only that day's candles.
+  // This prevents multi-day data from overlapping when displayed with HH:mm labels.
+  const { latestDayData, isMultiDay } = useMemo(() => {
+    if (data.length === 0) return { latestDayData: [], isMultiDay: false };
+
+    // Group candles by date (YYYY-MM-DD) to find the latest trading day
+    const dateGroups = new Map<string, MarketDataPoint[]>();
+    for (const d of data) {
+      try {
+        const parsed = parseISO(d.time);
+        const dateKey = format(parsed, 'yyyy-MM-dd');
+        if (!dateGroups.has(dateKey)) dateGroups.set(dateKey, []);
+        dateGroups.get(dateKey)!.push(d);
+      } catch {
+        // If parsing fails, skip grouping
+      }
+    }
+
+    // Sort dates descending and pick the latest one
+    const sortedDates = [...dateGroups.keys()].sort().reverse();
+    const latestDate = sortedDates[0];
+    const latestData = latestDate ? (dateGroups.get(latestDate) || []) : [];
+
+    return {
+      latestDayData: latestData,
+      isMultiDay: sortedDates.length > 1
+    };
   }, [data]);
 
-  const chartData = todayData.length > 0 ? todayData : data;
+  const chartData = latestDayData.length > 0 ? latestDayData : data;
 
   useEffect(() => {
     symbolRef.current = symbol;
@@ -155,8 +177,14 @@ export default function MarketDataPage() {
         if (json.success && json.data && json.data.length > 0) {
           const formatted: MarketDataPoint[] = json.data.map((d: any) => {
             let displayTime: string;
-            try { displayTime = format(parseISO(d.time), 'HH:mm'); }
-            catch { displayTime = d.time; }
+            try {
+              const parsed = parseISO(d.time);
+              // Use HH:mm for intraday display — the latest-day filter
+              // ensures we never mix days with the same HH:mm label
+              displayTime = format(parsed, 'HH:mm');
+            } catch {
+              displayTime = d.time;
+            }
             return {
               time: d.time,
               displayTime,
@@ -188,7 +216,8 @@ export default function MarketDataPage() {
           const msgToken = msg.data.token;
           if (msgToken && String(msgToken).includes(currentToken)) {
             const rawLtp = msg.data.last_traded_price || msg.data.ltp;
-            const newLtp = Number(rawLtp);
+            // Angel One WebSocket V2 returns prices in paisa (×100), convert to rupees
+            const newLtp = Number(rawLtp) / 100;
             if (newLtp && !isNaN(newLtp)) {
               setLtp(newLtp);
               setData(prev => {
@@ -307,97 +336,98 @@ export default function MarketDataPage() {
             <p className="text-gray-500">No data available. Market may be closed.</p>
           </div>
         ) : (
-          <div className="h-[500px] w-full relative z-10">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="volumeGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25}/>
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+          <div className="w-full relative z-10 overflow-x-auto">
+            <div className="h-[500px]" style={{ minWidth: '800px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="volumeGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
 
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
 
-                <XAxis
-                  dataKey="displayTime"
-                  stroke="#666"
-                  tick={{ fill: '#666', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={Math.max(Math.floor(chartData.length / 12), 1)}
-                />
-
-                <YAxis
-                  yAxisId="price"
-                  stroke="#666"
-                  tick={{ fill: '#888', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  domain={['auto', 'auto']}
-                  tickFormatter={(v) => v.toLocaleString()}
-                />
-
-                <YAxis
-                  yAxisId="volume"
-                  orientation="right"
-                  stroke="#666"
-                  tickLine={false}
-                  axisLine={false}
-                  hide
-                />
-
-                <Tooltip content={<CustomTooltip chartType={chartType} />} />
-
-                {/* Volume bars — always shown */}
-                <Bar
-                  yAxisId="volume"
-                  dataKey="volume"
-                  fill="url(#volumeGradient)"
-                  name="Volume"
-                  radius={[2, 2, 0, 0]}
-                  barSize={chartType === 'candlestick' ? 4 : 12}
-                  opacity={0.4}
-                />
-
-                {/* Candlestick via Customized — renders candles using axis scales */}
-                {chartType === 'candlestick' && (
-                  <Customized component={candlestickComponent} />
-                )}
-
-                {/* Line chart */}
-                {chartType === 'line' && (
-                  <Line
-                    yAxisId="price"
-                    type="monotone"
-                    dataKey="close"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Close"
-                    activeDot={{ r: 5, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }}
+                  <XAxis
+                    dataKey="displayTime"
+                    stroke="#666"
+                    tick={false}
+                    tickLine={false}
+                    axisLine={false}
                   />
-                )}
 
-                {/* Area chart */}
-                {chartType === 'area' && (
-                  <Area
+                  <YAxis
                     yAxisId="price"
-                    type="monotone"
-                    dataKey="close"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    fill="url(#areaGradient)"
-                    name="Close"
-                    activeDot={{ r: 5, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }}
+                    stroke="#666"
+                    tick={{ fill: '#888', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={['auto', 'auto']}
+                    tickFormatter={(v) => v.toFixed(2)}
                   />
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+
+                  <YAxis
+                    yAxisId="volume"
+                    orientation="right"
+                    stroke="#666"
+                    tickLine={false}
+                    axisLine={false}
+                    hide
+                  />
+
+                  <Tooltip content={<CustomTooltip chartType={chartType} />} />
+
+                  {/* Volume bars — always shown */}
+                  <Bar
+                    yAxisId="volume"
+                    dataKey="volume"
+                    fill="url(#volumeGradient)"
+                    name="Volume"
+                    radius={[2, 2, 0, 0]}
+                    barSize={chartType === 'candlestick' ? 4 : 12}
+                    opacity={0.4}
+                  />
+
+                  {/* Candlestick via Customized — renders candles using axis scales */}
+                  {chartType === 'candlestick' && (
+                    <Customized component={candlestickComponent} />
+                  )}
+
+                  {/* Line chart */}
+                  {chartType === 'line' && (
+                    <Line
+                      yAxisId="price"
+                      type="monotone"
+                      dataKey="close"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Close"
+                      activeDot={{ r: 5, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }}
+                    />
+                  )}
+
+                  {/* Area chart */}
+                  {chartType === 'area' && (
+                    <Area
+                      yAxisId="price"
+                      type="monotone"
+                      dataKey="close"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      fill="url(#areaGradient)"
+                      name="Close"
+                      activeDot={{ r: 5, fill: '#3b82f6', stroke: '#000', strokeWidth: 2 }}
+                    />
+                  )}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         )}
       </div>

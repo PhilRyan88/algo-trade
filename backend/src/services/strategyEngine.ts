@@ -1,5 +1,7 @@
 import { angelOneService } from './angelOneService';
 import { PaperTrade, IPaperTrade } from '../models/PaperTrade';
+import { mlService } from './mlService';
+import { extractFeatures } from './featureExtractor';
 
 interface Candle {
   timestamp: string;
@@ -328,6 +330,9 @@ class StrategyEngine {
     if (this.isRunning) return;
     this.isRunning = true;
     console.log('🤖 Strategy Engine started — scanning every 5 minutes during market hours');
+    
+    // Initialize ML Model
+    mlService.initModel().catch(err => console.error('❌ ML Init Error:', err));
 
     // Run immediately, then every 5 minutes
     this.runScan();
@@ -434,6 +439,27 @@ class StrategyEngine {
           }
 
           if (bestSignal) {
+            // --- ML SCORING ---
+            const features = extractFeatures(candles, {
+              type: bestSignal.type,
+              strategies: allSignals.filter(s => s.type === bestSignal!.type).map(s => s.strategy),
+              avgConfidence: bestSignal.confidence,
+              entryPrice: bestSignal.price,
+              stopLoss: bestSignal.stopLoss,
+              target: bestSignal.target
+            });
+
+            const { score, verdict } = await mlService.scoreSignal(features);
+            
+            // Log the score regardless
+            console.log(`🤖 ML Scorer: ${symbol} ${bestSignal.type} | Score: ${score.toFixed(2)} | Verdict: ${verdict}`);
+
+            // Filter if score is too low (using 0.4 as initial threshold)
+            if (score < 0.4) {
+              console.log(`🤖 ML Filter: Skipping ${symbol} trade due to low ML score (${score.toFixed(2)})`);
+              continue;
+            }
+
             // Check if expected profit covers brokerage fee
             const qty = this.lotSize[symbol] || 25;
             const expectedProfit = Math.abs(bestSignal.target - bestSignal.price) * qty;
@@ -450,7 +476,7 @@ class StrategyEngine {
             });
 
             if (!existing) {
-              await this.executeTrade(symbol, bestSignal);
+              await this.executeTrade(symbol, bestSignal, score);
             }
           }
         } catch (err) {
@@ -462,7 +488,7 @@ class StrategyEngine {
     }
   }
 
-  private async executeTrade(symbol: string, signal: Signal) {
+  private async executeTrade(symbol: string, signal: Signal, mlScore: number = 0) {
     const qty = this.lotSize[symbol] || 25;
 
     const trade = new PaperTrade({
@@ -476,6 +502,7 @@ class StrategyEngine {
       pnl: 0,
       status: 'OPEN',
       confidence: signal.confidence,
+      mlScore: mlScore,
       reason: signal.reason,
       openedAt: new Date(),
     });
