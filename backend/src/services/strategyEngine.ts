@@ -40,6 +40,13 @@ class StrategyEngine extends EventEmitter {
 
     // Subscribe to market data ticks
     angelOneService.on('market_data', this.marketDataListener);
+
+    // Automatically trigger background batch retraining on startup
+    const { backtestService } = require('./backtestService');
+    console.log('🤖 ML: Automatically launching background model retraining on engine start...');
+    backtestService.runBacktestTraining()
+      .then((res: any) => console.log('✅ ML: Auto-retraining finished successfully on startup:', res))
+      .catch((err: any) => console.error('❌ ML: Auto-retraining failed on startup:', err));
   }
 
   stop(): void {
@@ -181,6 +188,17 @@ class StrategyEngine extends EventEmitter {
           if (!riskCheck.allowed) {
             rejectedReason = riskCheck.reason;
           } else {
+            // Extract the 25 features representing this setup at entry!
+            const { extractFeatures } = require('./featureExtractor');
+            const entryFeatures = extractFeatures(oneMinCandles.slice(0, oneMinCandles.length - 1), {
+              type: optionType === 'CE' ? 'BUY' : 'SELL',
+              strategies: ['WEIGHTED_SCORING'],
+              avgConfidence: score,
+              entryPrice: ltp,
+              stopLoss: ltp * 0.9, // approx SL spot
+              target: ltp * 1.1 // approx TP spot
+            });
+
             // Execute trade order!
             const trade = await orderExecutor({
               symbol,
@@ -189,7 +207,8 @@ class StrategyEngine extends EventEmitter {
               score,
               quantity: riskCheck.quantity,
               reason: `Weighted score is ${score} based on bullish/bearish alignment`,
-              timestamp: candleTimestamp
+              timestamp: candleTimestamp,
+              entryFeatures
             });
             console.log(`🚀 [ORDER PLACED] Placed ATM option order: ${trade.symbol} x ${trade.quantity} @ premium ₹${trade.entryPrice.toFixed(2)}`);
           }

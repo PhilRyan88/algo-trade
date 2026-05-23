@@ -26,6 +26,7 @@ export interface IPaperTrade extends Document {
   partialExitQty: number;
   initialQuantity: number;
   hasMoveToBE: boolean;
+  entryFeatures: number[];
 }
 
 const PaperTradeSchema: Schema = new Schema({
@@ -54,6 +55,7 @@ const PaperTradeSchema: Schema = new Schema({
   partialExitQty: { type: Number, default: 0 },
   initialQuantity: { type: Number, default: 0 },
   hasMoveToBE: { type: Boolean, default: false },
+  entryFeatures: { type: [Number], default: [] }
 });
 
 // Compound index for querying today's trades efficiently

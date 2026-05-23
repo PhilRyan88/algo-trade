@@ -8,6 +8,7 @@ export interface OrderDetails {
   quantity: number;
   reason: string;
   timestamp: string;
+  entryFeatures?: number[];
 }
 
 /**
@@ -42,7 +43,7 @@ export function estimateOptionPremium(symbol: string, spotPrice: number): number
  * Places the paper trade order and inserts it into the database
  */
 export async function orderExecutor(details: OrderDetails): Promise<IPaperTrade> {
-  const { symbol, optionType, spotPrice, score, quantity, reason, timestamp } = details;
+  const { symbol, optionType, spotPrice, score, quantity, reason, timestamp, entryFeatures } = details;
 
   // 1. Detect ATM Strike
   const optionStrike = detectATMStrike(symbol, spotPrice);
@@ -90,7 +91,8 @@ export async function orderExecutor(details: OrderDetails): Promise<IPaperTrade>
     partialExitPrice: null,
     partialExitQty: 0,
     initialQuantity: quantity,
-    hasMoveToBE: false
+    hasMoveToBE: false,
+    entryFeatures: entryFeatures || []
   });
 
   await trade.save();
