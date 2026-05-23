@@ -51,7 +51,7 @@ export default function LoginPage() {
           <div className="w-14 h-14 md:w-20 md:h-20 bg-gradient-to-br from-primary/30 to-primary/5 rounded-2xl md:rounded-3xl flex items-center justify-center mx-auto mb-4 md:mb-8 border border-primary/20 shadow-[0_0_50px_rgba(34,197,94,0.15)] ring-1 ring-white/10">
             <Shield className="w-7 h-7 md:w-10 md:h-10 text-primary" />
           </div>
-          <h2 className="text-2xl md:text-4xl font-bold tracking-tight text-white mb-2 md:mb-3">SmartAPI Login</h2>
+          <h2 className="text-2xl md:text-4xl font-bold tracking-tight text-white mb-2 md:mb-3">Algo Trade Login</h2>
           <p className="text-xs md:text-sm text-muted-foreground max-w-[280px] mx-auto">Verify your identity with TOTP to access live market data</p>
         </div>
 
@@ -119,10 +119,15 @@ export default function LoginPage() {
                 <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />
                 Authenticating...
               </span>
-            ) : 'Connect to SmartAPI'}
+            ) : 'Connect to Algo Trade'}
           </button>
         </form>
       </div>
+
+      {/* Watermark */}
+      <p className="mt-8 text-[10px] text-gray-600 font-mono tracking-[0.25em] uppercase pointer-events-none select-none">
+        Developed by Aditya Sooraj
+      </p>
     </div>
   );
 }

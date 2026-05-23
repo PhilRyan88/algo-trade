@@ -222,13 +222,43 @@ export default function MarketDataPage() {
               setLtp(newLtp);
               setData(prev => {
                 const now = new Date();
-                const newPoint: MarketDataPoint = {
-                  time: now.toISOString(),
-                  displayTime: format(now, 'HH:mm:ss'),
-                  open: newLtp, high: newLtp, low: newLtp, close: newLtp,
-                  volume: msg.data.volume_traded || 0
-                };
-                const newData = [...prev, newPoint];
+                const bucketDate = new Date(now);
+                bucketDate.setSeconds(0);
+                bucketDate.setMilliseconds(0);
+                const bucketStr = bucketDate.toISOString();
+                const displayTimeStr = format(bucketDate, 'HH:mm');
+                const volume = msg.data.volume_traded || msg.data.v || 0;
+
+                if (prev.length === 0) {
+                  return [{
+                    time: bucketStr,
+                    displayTime: displayTimeStr,
+                    open: newLtp, high: newLtp, low: newLtp, close: newLtp,
+                    volume: Number(volume)
+                  }];
+                }
+
+                const newData = [...prev];
+                const lastPoint = { ...newData[newData.length - 1] };
+
+                // If last point corresponds to the same minute, update it
+                if (lastPoint.displayTime === displayTimeStr) {
+                  lastPoint.close = newLtp;
+                  lastPoint.high = Math.max(lastPoint.high, newLtp);
+                  lastPoint.low = Math.min(lastPoint.low, newLtp);
+                  lastPoint.volume = Number(volume) || lastPoint.volume;
+                  newData[newData.length - 1] = lastPoint;
+                } else {
+                  // It's a new minute, append a new point
+                  const newPoint: MarketDataPoint = {
+                    time: bucketStr,
+                    displayTime: displayTimeStr,
+                    open: newLtp, high: newLtp, low: newLtp, close: newLtp,
+                    volume: Number(volume)
+                  };
+                  newData.push(newPoint);
+                }
+
                 if (newData.length > 200) return newData.slice(newData.length - 200);
                 return newData;
               });
@@ -262,7 +292,7 @@ export default function MarketDataPage() {
             <Activity className="w-6 h-6 text-primary" />
             Live Market Data
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Real-time intraday feed from Angel One SmartAPI</p>
+          <p className="text-sm text-muted-foreground mt-1">Real-time intraday feed from Algo Trade</p>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">

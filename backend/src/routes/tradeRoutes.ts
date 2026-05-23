@@ -3,6 +3,7 @@ import { PaperTrade } from '../models/PaperTrade';
 import { strategyEngine } from '../services/strategyEngine';
 import { mlService } from '../services/mlService';
 import { backtestService } from '../services/backtestService';
+import { getStartingCapital, setStartingCapital } from '../services/settingsService';
 
 export default async function tradeRoutes(fastify: FastifyInstance) {
   console.log('🔌 Registering Trade Routes (including ML endpoints)...');
@@ -98,15 +99,15 @@ export default async function tradeRoutes(fastify: FastifyInstance) {
       if (t.pnl > 0) strategyStats[t.strategy].wins++;
     }
 
-    const INITIAL_BALANCE = 15000;
-    const currentBalance = INITIAL_BALANCE + totalPnl;
+    const startingCapital = await getStartingCapital();
+    const currentBalance = startingCapital + totalPnl;
 
     return {
       success: true,
       data: {
         totalTrades: allTrades.length,
         totalPnl,
-        startingBalance: INITIAL_BALANCE,
+        startingBalance: startingCapital,
         currentBalance,
         winCount: wins.length,
         lossCount: losses.length,
@@ -132,5 +133,20 @@ export default async function tradeRoutes(fastify: FastifyInstance) {
   fastify.post('/engine/stop', async () => {
     strategyEngine.stop();
     return { success: true, message: 'Strategy engine stopped' };
+  });
+
+  // Settings
+  fastify.get('/settings', async () => {
+    const startingCapital = await getStartingCapital();
+    return { success: true, data: { startingCapital } };
+  });
+
+  fastify.post('/settings', async (request, reply) => {
+    const { startingCapital } = request.body as any;
+    if (typeof startingCapital !== 'number' || startingCapital <= 0) {
+      return reply.code(400).send({ success: false, message: 'Starting capital must be a positive number' });
+    }
+    await setStartingCapital(startingCapital);
+    return { success: true, message: 'Starting capital updated successfully' };
   });
 }
