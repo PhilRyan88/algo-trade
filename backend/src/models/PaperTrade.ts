@@ -16,6 +16,16 @@ export interface IPaperTrade extends Document {
   reason: string;
   openedAt: Date;
   closedAt: Date | null;
+  // Options specific fields
+  entrySpotPrice: number;
+  optionStrike: number;
+  optionType: 'CE' | 'PE' | 'NONE';
+  trailSL: number;
+  isPartialExited: boolean;
+  partialExitPrice: number | null;
+  partialExitQty: number;
+  initialQuantity: number;
+  hasMoveToBE: boolean;
 }
 
 const PaperTradeSchema: Schema = new Schema({
@@ -34,6 +44,16 @@ const PaperTradeSchema: Schema = new Schema({
   reason: { type: String, default: '' },
   openedAt: { type: Date, default: Date.now },
   closedAt: { type: Date, default: null },
+  // Options specific fields
+  entrySpotPrice: { type: Number, default: 0 },
+  optionStrike: { type: Number, default: 0 },
+  optionType: { type: String, enum: ['CE', 'PE', 'NONE'], default: 'NONE' },
+  trailSL: { type: Number, default: 0 },
+  isPartialExited: { type: Boolean, default: false },
+  partialExitPrice: { type: Number, default: null },
+  partialExitQty: { type: Number, default: 0 },
+  initialQuantity: { type: Number, default: 0 },
+  hasMoveToBE: { type: Boolean, default: false },
 });
 
 // Compound index for querying today's trades efficiently

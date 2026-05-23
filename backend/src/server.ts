@@ -31,7 +31,14 @@ const startServer = async () => {
         }
       };
 
+      const strategyLogListener = (logData: any) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'strategy_log', data: logData }));
+        }
+      };
+
       angelOneService.on('market_data', marketDataListener);
+      strategyEngine.on('strategy_log', strategyLogListener);
 
       ws.on('message', (message) => {
         const msg = message.toString();
@@ -40,11 +47,24 @@ const startServer = async () => {
 
       ws.on('close', () => {
         angelOneService.off('market_data', marketDataListener);
+        strategyEngine.off('strategy_log', strategyLogListener);
       });
     });
 
     // 5. Strategy Engine is ready (Manual start required)
     console.log('🤖 Strategy Engine initialized in STOPPED state. Start it manually from the dashboard.');
+
+    // 6. Start Self-Pinging Health Check to prevent free-tier host (Render) spin-down due to inactivity
+    setInterval(() => {
+      const http = require('http');
+      const port = env.PORT || 5000;
+      console.log(`🤖 Self-pinging health check on port ${port} to prevent host spin-down...`);
+      http.get(`http://localhost:${port}/health`, (res: any) => {
+        res.resume();
+      }).on('error', (err: any) => {
+        console.warn('⚠️ Self-ping check failed:', err.message);
+      });
+    }, 10 * 60 * 1000); // 10 minutes
 
   } catch (error) {
     console.error('❌ CRITICAL: Failed to start server:', error);

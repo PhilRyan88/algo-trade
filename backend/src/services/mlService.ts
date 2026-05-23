@@ -108,21 +108,64 @@ export class MLService {
     if (!this.model) await this.initModel();
     if (!this.model) throw new Error('Model not initialized');
 
-    console.log(`🤖 ML Service: Training on ${features.length} samples...`);
+    console.log(`🤖 ML Service: Starting advanced training on ${features.length} samples...`);
+
+    // 1. Calculate Class Weights for Imbalanced Trading Data (Wins vs Losses balance)
+    const numWins = labels.filter(l => l === 1).length;
+    const numLosses = labels.length - numWins;
+    const total = labels.length;
+    
+    const classWeight: Record<number, number> = {
+      0: numLosses > 0 ? (total / (2 * numLosses)) : 1.0,
+      1: numWins > 0 ? (total / (2 * numWins)) : 1.0
+    };
+    
+    console.log(`🤖 ML Service: Class balance - Wins: ${numWins}, Losses: ${numLosses}. Dynamic Class Weights:`, classWeight);
 
     const xTrain = tf.tensor2d(features);
     const yTrain = tf.tensor2d(labels, [labels.length, 1]);
 
+    // 2. Training configuration with early stopping and validation splitting
+    let bestValLoss = Infinity;
+    let epochsWithoutImprovement = 0;
+    const patience = 8; // Stop if validation loss stalls for 8 epochs
+
     const history = await this.model.fit(xTrain, yTrain, {
-      epochs: 50,
-      batchSize: 32,
+      epochs: 80,
+      batchSize: 16, // Smaller batch sizes yield better generalisation on micro-datasets
       validationSplit: 0.2,
       shuffle: true,
       verbose: 0,
+      classWeight,
       callbacks: {
-        onEpochEnd: (epoch, logs) => {
+        onEpochEnd: async (epoch, logs) => {
+          const valLoss = logs?.val_loss || 0;
+          const valAcc = logs?.val_acc || 0;
+          
           if (epoch % 10 === 0) {
-            console.log(`Epoch ${epoch}: loss = ${logs?.loss.toFixed(4)}, acc = ${logs?.acc.toFixed(4)}`);
+            console.log(`Epoch ${epoch}: loss = ${logs?.loss.toFixed(4)}, acc = ${logs?.acc.toFixed(4)} | val_loss = ${valLoss.toFixed(4)}, val_acc = ${valAcc.toFixed(4)}`);
+          }
+
+          // Adaptive Learning Rate Decay (reduce LR if validation stalls)
+          if (epoch > 0 && epoch % 15 === 0) {
+            const currentLr = (this.model?.optimizer as any).learningRate;
+            if (currentLr) {
+              const newLr = currentLr * 0.5;
+              (this.model!.optimizer as any).learningRate = newLr;
+              console.log(`📉 [ADAPTIVE LR] Decayed learning rate to ${newLr.toFixed(6)}`);
+            }
+          }
+
+          // Early stopping logic
+          if (valLoss < bestValLoss) {
+            bestValLoss = valLoss;
+            epochsWithoutImprovement = 0;
+          } else {
+            epochsWithoutImprovement++;
+            if (epochsWithoutImprovement >= patience) {
+              console.log(`🛑 [EARLY STOPPING] Triggered at epoch ${epoch} to prevent overfitting. Best val_loss: ${bestValLoss.toFixed(4)}`);
+              this.model?.stopTraining;
+            }
           }
         }
       }

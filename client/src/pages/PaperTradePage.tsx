@@ -82,6 +82,9 @@ export default function PaperTradePage() {
   const [isTraining, setIsTraining] = useState(false);
   const [showTrainModal, setShowTrainModal] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [showCapitalModal, setShowCapitalModal] = useState(false);
+  const [newCapital, setNewCapital] = useState('15000');
+  const [strategyLogs, setStrategyLogs] = useState<any[]>([]);
 
   const fetchToday = async () => {
     try {
@@ -136,13 +139,59 @@ export default function PaperTradePage() {
     }
   };
 
+  const updateCapital = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startingCapital: Number(newCapital) })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNotification({ type: 'success', message: 'Starting capital updated successfully!' });
+        fetchStats();
+        fetchToday();
+      } else {
+        setNotification({ type: 'error', message: json.message || 'Failed to update capital' });
+      }
+    } catch {
+      setNotification({ type: 'error', message: 'Network error occurred' });
+    } finally {
+      setShowCapitalModal(false);
+      setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  useEffect(() => {
+    const wsUrl = import.meta.env.VITE_API_URL?.replace('http', 'ws') || 'ws://localhost:5000/api';
+    const ws = new WebSocket(`${wsUrl}/ws`);
+    
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'strategy_log' && msg.data) {
+          setStrategyLogs(prev => {
+            const next = [msg.data, ...prev];
+            if (next.length > 30) return next.slice(0, 30);
+            return next;
+          });
+          fetchToday();
+          fetchStats();
+        }
+      } catch {}
+    };
+
+    return () => ws.close();
+  }, []);
+
   const trainModel = async () => {
     setIsTraining(true);
     setShowTrainModal(false);
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/ml/train/backtest`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
       });
       const json = await res.json();
       
@@ -266,11 +315,20 @@ export default function PaperTradePage() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
           <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4 ring-1 ring-white/5">
             <p className="text-xs text-gray-500 mb-1">Current Balance</p>
             <p className="text-xl font-bold text-white font-mono">
               ₹{stats.currentBalance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </p>
+          </div>
+          <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4 relative group hover:border-primary/40 transition-all cursor-pointer shadow-lg hover:shadow-primary/5" onClick={() => { setNewCapital(stats.startingBalance.toString()); setShowCapitalModal(true); }}>
+            <p className="text-xs text-gray-500 mb-1 flex items-center justify-between">
+              Starting Capital
+              <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
+            </p>
+            <p className="text-xl font-bold text-white font-mono">
+              ₹{stats.startingBalance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </p>
           </div>
           <div className="bg-[#0F0F0F]/80 border border-white/5 rounded-2xl p-4">
@@ -319,6 +377,76 @@ export default function PaperTradePage() {
           </div>
         </div>
       )}
+
+      {/* Live Activity Audit Feed */}
+      <div className="bg-[#0F0F0F]/80 backdrop-blur-xl border border-white/5 rounded-3xl p-5 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-400 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary animate-pulse" /> Live Strategy Scan & Activity Feed
+          </h3>
+          <span className="text-xs text-gray-500 font-mono">Real-time server logs</span>
+        </div>
+        
+        {strategyLogs.length === 0 ? (
+          <div className="h-32 flex items-center justify-center border border-dashed border-white/5 rounded-2xl bg-black/20">
+            <p className="text-xs text-gray-600 font-mono">Waiting for next 5-minute candle close scan...</p>
+          </div>
+        ) : (
+          <div className="max-h-60 overflow-y-auto space-y-2.5 pr-2 font-mono scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
+            {strategyLogs.map((log, i) => {
+              const date = new Date(log.timestamp);
+              const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              
+              const isTrade = log.signalGenerated !== 'NONE';
+              const isRejected = log.rejectedReason !== '';
+              
+              return (
+                <div key={i} className={`p-3 rounded-xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                  isTrade && !isRejected 
+                    ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' 
+                    : isRejected && log.signalGenerated !== 'NONE'
+                    ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
+                    : 'bg-white/[0.02] border-white/5 text-gray-400'
+                }`}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded font-bold">{timeStr}</span>
+                      <span className="font-bold text-white">{log.symbol}</span>
+                      <span className="text-gray-500 text-[10px]">Spot: ₹{log.spotPrice?.toFixed(2)}</span>
+                      {log.optionStrike > 0 && (
+                        <span className="text-gray-400 font-semibold text-[10px]">({log.optionStrike} {log.optionType})</span>
+                      )}
+                    </div>
+                    
+                    <div className="text-[10px] text-gray-500 flex gap-x-4 gap-y-1 flex-wrap">
+                      <span>VWAP: {log.vwap?.toFixed(1)}</span>
+                      <span>EMA9: {log.ema9?.toFixed(1)}</span>
+                      <span>RSI: {log.rsi?.toFixed(1)}</span>
+                      <span>ATR: {log.atr?.toFixed(1)}</span>
+                      <span>Vol: {log.volume}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="text-right flex flex-col items-start md:items-end gap-1 font-bold">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500">Score:</span>
+                      <span className={log.score >= 70 ? 'text-emerald-400 font-bold' : 'text-gray-500'}>{log.score}</span>
+                    </div>
+                    
+                    {isRejected ? (
+                      <span className="text-[10px] text-amber-500/90 font-medium">REJECTED: {log.rejectedReason}</span>
+                    ) : isTrade ? (
+                      <span className="text-[10px] text-emerald-400 font-medium animate-pulse">EXECUTION: Order Placed!</span>
+                    ) : (
+                      <span className="text-[10px] text-gray-600 font-medium">Scan finished • No Setup</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Today Summary Bar */}
       {summary && activeTab === 'today' && (
@@ -475,8 +603,8 @@ export default function PaperTradePage() {
       {/* Confirmation Modal */}
       {showTrainModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowTrainModal(false)} />
-          <div className="bg-[#0F0F0F] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.5)] relative animate-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-0" onClick={() => setShowTrainModal(false)} />
+          <div className="bg-[#0F0F0F] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.5)] relative z-10 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-4 mb-6">
               <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
                 <BarChart3 className="w-6 h-6 text-primary" />
@@ -504,6 +632,54 @@ export default function PaperTradePage() {
                 className="flex-1 px-4 py-3 rounded-xl bg-primary text-black font-bold hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]"
               >
                 Start Training
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Capital Configuration Modal */}
+      {showCapitalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-0" onClick={() => setShowCapitalModal(false)} />
+          <div className="bg-[#0F0F0F] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.5)] relative z-10 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
+                <Target className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Adjust Trading Capital</h3>
+                <p className="text-sm text-gray-400 mt-1">Configure starting balance</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4 mb-8">
+              <p className="text-gray-300 text-sm leading-relaxed">
+                Enter your custom virtual trading capital. This starting balance is used to calculate your risk limits (2% per trade) and position sizing.
+              </p>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold font-mono">₹</span>
+                <input
+                  type="number"
+                  value={newCapital}
+                  onChange={(e) => setNewCapital(e.target.value)}
+                  className="w-full bg-[#050505] border border-white/10 rounded-xl py-3 pl-8 pr-4 text-white font-mono focus:outline-none focus:border-primary/50 text-lg"
+                  placeholder="15000"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCapitalModal(false)}
+                className="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-400 hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={updateCapital}
+                className="flex-1 px-4 py-3 rounded-xl bg-primary text-black font-bold hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]"
+              >
+                Save Capital
               </button>
             </div>
           </div>
