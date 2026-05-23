@@ -129,6 +129,16 @@ export async function closePosition(
   
   await trade.save();
 
+  // Trigger Online Continuous Self-Training if features exist!
+  if (trade.entryFeatures && trade.entryFeatures.length > 0) {
+    const outcomeLabel = finalPnl > 0 ? 1 : 0;
+    const { mlService } = require('../mlService');
+    console.log(`🤖 ML [ONLINE SELF-TRAINING]: Completed trade ${trade.symbol}. Outcome: ${outcomeLabel === 1 ? 'WIN' : 'LOSS'}. Training model incrementally...`);
+    mlService.train([trade.entryFeatures], [outcomeLabel])
+      .then((res: any) => console.log(`✅ ML [ONLINE SELF-TRAINING]: Model successfully retrained incrementally in real-time.`))
+      .catch((err: any) => console.error('❌ ML [ONLINE SELF-TRAINING]: Incremental self-training failed:', err));
+  }
+
   const emoji = finalPnl >= 0 ? '💰' : '📉';
   console.log(
     `${emoji} [POSITION CLOSED] ${trade.symbol} (${status}) ` +

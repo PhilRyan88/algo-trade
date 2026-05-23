@@ -267,16 +267,6 @@ export default function PaperTradePage() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowTrainModal(true)}
-            disabled={isTraining}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border border-white/10 ${
-              isTraining ? 'bg-white/5 text-gray-500' : 'bg-white/5 text-gray-300 hover:bg-white/10'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            {isTraining ? 'Training...' : 'Train Model'}
-          </button>
-          <button
             onClick={toggleEngine}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all shadow-lg ${
               isEngineRunning
@@ -600,43 +590,6 @@ export default function PaperTradePage() {
         </div>
       )}
 
-      {/* Confirmation Modal */}
-      {showTrainModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-0" onClick={() => setShowTrainModal(false)} />
-          <div className="bg-[#0F0F0F] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(0,0,0,0.5)] relative z-10 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-white">Train ML Model</h3>
-                <p className="text-sm text-gray-400 mt-1">Backtest historical data</p>
-              </div>
-            </div>
-            
-            <p className="text-gray-300 text-sm leading-relaxed mb-8">
-              This will fetch the last 30 days of market data and run all strategies to generate training samples. 
-              The engine will "learn" which market conditions lead to profitable trades.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowTrainModal(false)}
-                className="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-400 hover:bg-white/5 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={trainModel}
-                className="flex-1 px-4 py-3 rounded-xl bg-primary text-black font-bold hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)]"
-              >
-                Start Training
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Capital Configuration Modal */}
       {showCapitalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
