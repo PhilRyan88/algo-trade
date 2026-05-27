@@ -138,3 +138,18 @@ All REST endpoints are configured with Fastify and served on the `/api` prefix:
 | `/api/breakout` | `GET` | Fetches the latest 50 breakout signals from MongoDB Atlas. |
 | `/api/options` | `GET` | Generates options data (strikes, confidence) based on live LTP. |
 | `/api/trades` | `GET` / `POST` | Controls and tracks running simulation trades. |
+
+---
+
+## 7. Associated Cloud & Service Accounts
+
+To manage, deploy, and monitor the AlgoTrade Pro infrastructure, the following accounts and registered emails are utilized:
+
+*   **Render Container Hosting**: `adithyasrk7@gmail.com`
+    *   Hosts the Node.js Fastify container web service, serving API routes and streaming live broker WebSocket connections.
+*   **MongoDB Atlas Database**: `adithyasrk7@gmail.com`
+    *   Manages the cloud-hosted document collections (breakouts, setting keys, and active user session states).
+*   **UptimeRobot Monitoring**: `adisrk5@gmail.com`
+    *   Pings the `/health` endpoint every 5 minutes to prevent Render's free tier from entering idle spin-down.
+*   **Vercel Deployments**: `adisrk5@gmail.com`
+    *   Handles production hosting and CD deployments for client interfaces connecting back to the server.
