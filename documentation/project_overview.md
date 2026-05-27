@@ -6,14 +6,14 @@
 ## 2. Architecture & Components
 The application is divided into two main components and supported by a containerized infrastructure layer.
 
-### A. Backend API Service (Node.js / Express)
-The Backend is the central hub performing data analysis, interacting with the database, and serving the mobile application.
-- **Tech Stack:** Node.js, TypeScript, Express, Mongoose (MongoDB), WebSockets.
+### A. Backend API Service (Node.js / Fastify)
+The Backend is the central hub performing data analysis, interacting with the database, and serving the mobile application. For a highly detailed overview of authentication, credentials cryptography, and startup recovery, see the full [Backend Architecture & Session Persistence Engine](file:///d:/Projects/algo-trade-pro/documentation/backend_architecture.md) documentation.
+- **Tech Stack:** Node.js, TypeScript, Fastify, Mongoose (MongoDB Atlas), WebSockets.
 - **Responsibilities:**
   - **Cron Jobs (`src/cron/scanner.ts`):** Repeatedly trigger to scan for new breakouts by fetching data from AngelOne and storing the interpreted results in the database.
   - **Pattern Recognition (`src/services/analysisService.ts`):** Mathematical detection of technical breakouts.
   - **Data Integration (`src/services/angelOneService.ts`):** Fetches real OHLCV data from AngelOne SmartAPI.
-  - **Database Interaction:** Serve stored stock pattern data from a MongoDB database. The `/api/breakout` endpoint fetches the top 50 latest breakout signals.
+  - **Database Interaction:** Serve stored stock pattern data from a MongoDB Atlas database. The `/api/breakout` endpoint fetches the top 50 latest breakout signals.
   - **Real-time Updates:** Host a WebSocket server (`/api/ws`) to stream real-time trade details or options data to connected clients.
 
 ### C. Mobile Application (React Native / Expo)

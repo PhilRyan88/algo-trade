@@ -12,6 +12,13 @@ const startServer = async () => {
     // 1. Connect to MongoDB
     await connectDB();
 
+    // 1.5. Restore Angel One session from MongoDB
+    try {
+      await angelOneService.restoreSession();
+    } catch (restoreError) {
+      console.error('⚠️ [Server Startup] Error restoring Angel One session on boot:', restoreError);
+    }
+
     // 2. Setup Cron Jobs
     setupCronJobs();
 
