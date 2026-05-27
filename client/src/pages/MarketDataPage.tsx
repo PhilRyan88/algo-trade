@@ -351,23 +351,23 @@ export default function MarketDataPage() {
         </div>
       </div>
 
-      <div className="bg-[#0F0F0F]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+      <div className="bg-[#0F0F0F]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-3 sm:p-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/5 blur-[120px] rounded-full pointer-events-none" />
 
         {isLoading ? (
-          <div className="h-[500px] flex items-center justify-center">
+          <div className="h-[300px] sm:h-[400px] md:h-[500px] flex items-center justify-center">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
               <p className="text-sm text-gray-400">Loading market data...</p>
             </div>
           </div>
         ) : chartData.length === 0 ? (
-          <div className="h-[500px] flex items-center justify-center">
+          <div className="h-[300px] sm:h-[400px] md:h-[500px] flex items-center justify-center">
             <p className="text-gray-500">No data available. Market may be closed.</p>
           </div>
         ) : (
-          <div className="w-full relative z-10 overflow-x-auto">
-            <div className="h-[500px]" style={{ minWidth: '800px' }}>
+          <div className="w-full relative z-10 select-none" style={{ touchAction: 'pan-y' }}>
+            <div className="h-[300px] sm:h-[400px] md:h-[500px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
                   <defs>

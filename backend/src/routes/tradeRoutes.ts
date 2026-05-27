@@ -4,6 +4,7 @@ import { strategyEngine } from '../services/strategyEngine';
 import { mlService } from '../services/mlService';
 import { backtestService } from '../services/backtestService';
 import { getStartingCapital, setStartingCapital } from '../services/settingsService';
+import { StrategyLog } from '../models/StrategyLog';
 
 export default async function tradeRoutes(fastify: FastifyInstance) {
   console.log('🔌 Registering Trade Routes (including ML endpoints)...');
@@ -148,5 +149,21 @@ export default async function tradeRoutes(fastify: FastifyInstance) {
     }
     await setStartingCapital(startingCapital);
     return { success: true, message: 'Starting capital updated successfully' };
+  });
+
+  // Get today's strategy logs
+  fastify.get('/strategy/logs', async () => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    // Prune previous days' logs from DB
+    await StrategyLog.deleteMany({ timestamp: { $lt: startOfToday } });
+
+    // Fetch today's logs, sorted newest first
+    const logs = await StrategyLog.find({
+      timestamp: { $gte: startOfToday }
+    }).sort({ timestamp: -1 });
+
+    return { success: true, data: logs };
   });
 }

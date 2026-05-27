@@ -139,6 +139,16 @@ export default function PaperTradePage() {
     }
   };
 
+  const fetchStrategyLogs = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/strategy/logs`);
+      const json = await res.json();
+      if (json.success) setStrategyLogs(json.data);
+    } catch (err) {
+      console.error('Failed to fetch strategy logs', err);
+    }
+  };
+
   const updateCapital = async () => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/trades/settings`, {
@@ -213,6 +223,7 @@ export default function PaperTradePage() {
     fetchToday();
     fetchStats();
     fetchMlStatus();
+    fetchStrategyLogs();
 
     // Auto-refresh every 30 seconds ONLY if engine is running
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -382,7 +393,7 @@ export default function PaperTradePage() {
             <p className="text-xs text-gray-600 font-mono">Waiting for next 5-minute candle close scan...</p>
           </div>
         ) : (
-          <div className="max-h-60 overflow-y-auto space-y-2.5 pr-2 font-mono scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
+          <div className="max-h-60 overflow-y-auto space-y-2.5 pr-2 font-mono scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent select-none" style={{ touchAction: 'pan-y' }}>
             {strategyLogs.map((log, i) => {
               const date = new Date(log.timestamp);
               const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -506,7 +517,7 @@ export default function PaperTradePage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto select-none" style={{ touchAction: 'pan-y' }}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/5">

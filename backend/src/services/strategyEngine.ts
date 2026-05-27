@@ -9,6 +9,7 @@ import { riskManager } from './strategy/riskManager';
 import { orderExecutor } from './strategy/orderExecutor';
 import { positionManager, closeAllOpenPositions } from './strategy/positionManager';
 import { tradeLogger } from './strategy/tradeLogger';
+import { StrategyLog } from '../models/StrategyLog';
 
 class StrategyEngine extends EventEmitter {
   constructor() {
@@ -214,7 +215,21 @@ class StrategyEngine extends EventEmitter {
           }
         }
       } else {
-        rejectedReason = 'Score below threshold of 70';
+        // Construct detailed, highly precise alignment failure reasons for the user
+        const longScore = scoreReport.long.score;
+        const shortScore = scoreReport.short.score;
+        const bestDirection = longScore >= shortScore ? 'CE' : 'PE';
+        const bestScore = Math.max(longScore, shortScore);
+        const bestCheck = longScore >= shortScore ? signalReport.long : signalReport.short;
+        
+        const failedChecks = [];
+        if (!bestCheck.vwapAlignment) failedChecks.push('Spot > VWAP');
+        if (!bestCheck.emaAlignment) failedChecks.push('Spot > EMA9');
+        if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI (${signalReport.rsi.toFixed(0)})`);
+        if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
+        if (!bestCheck.breakoutCandle) failedChecks.push('Bullish Candle');
+
+        rejectedReason = `Score ${bestScore}/100 too low for ${bestDirection}. Failed: ${failedChecks.join(', ')}`;
       }
 
       const logPayload = {
@@ -236,6 +251,21 @@ class StrategyEngine extends EventEmitter {
 
       // 8. Mandatory log format output
       tradeLogger(logPayload);
+
+      // Save persistent log to MongoDB Atlas and prune logs older than today
+      try {
+        const dbLog = new StrategyLog({
+          ...logPayload,
+          timestamp: new Date(logPayload.timestamp)
+        });
+        await dbLog.save();
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        await StrategyLog.deleteMany({ timestamp: { $lt: startOfToday } });
+      } catch (logDbErr) {
+        console.error('⚠️ [StrategyEngine] MongoDB log save error:', logDbErr);
+      }
 
       // Emit event for WebSocket broadcasting
       this.emit('strategy_log', logPayload);
