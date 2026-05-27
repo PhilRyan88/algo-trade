@@ -5,7 +5,7 @@ import { env } from '../config/env';
 
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/login', async (request, reply) => {
-    const { clientCode, pin, totpCode } = request.body as any;
+    const { clientCode, pin, totpCode, totpSecret } = request.body as any;
     
     // Check if matching provided env (for simplicity) or just try to authenticate
     if (!env.ANGELONE_API_KEY) {
@@ -13,11 +13,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // Assuming we have a manual authenticate method we can add, or just use the existing one
-      // If user provides a totpCode, we could theoretically use it, 
-      // but AngelOneService's authenticate() automatically generates it if TOTP_SECRET is provided.
-      // We will create a loginWithCredentials method on angelOneService.
-      const result = await angelOneService.loginWithCredentials(clientCode, pin, totpCode);
+      const result = await angelOneService.loginWithCredentials(clientCode, pin, totpCode, totpSecret);
       if (result) {
         return { success: true, message: 'Login successful' };
       } else {

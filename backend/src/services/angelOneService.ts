@@ -4,6 +4,8 @@ import { SmartAPI, WebSocketV2 } from 'smartapi-javascript';
 // @ts-ignore
 import { TOTP } from 'totp-generator';
 import { EventEmitter } from 'events';
+import { AngelOneSession } from '../models/AngelOneSession';
+import { encrypt, decrypt } from '../utils/crypto';
 
 export class AngelOneService extends EventEmitter {
   private smartApi: any;
@@ -12,11 +14,13 @@ export class AngelOneService extends EventEmitter {
   private sessionEstablished: boolean = false;
   private activeClientCode: string = '';
   private feedToken: string = '';
-  private lastAuthTime: number = 0;
-  private readonly TOKEN_VALIDITY_MS = 8 * 60 * 60 * 1000; // 8 hours conservative
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+
+  // Heartbeat monitor fields
+  private lastTickTime: number = 0;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
@@ -26,97 +30,375 @@ export class AngelOneService extends EventEmitter {
   }
 
   getIsAuthenticated() {
-    console.log(`🤖 AngelOne Status Check: isAuthenticated=${this.isAuthenticated}, sessionEstablished=${this.sessionEstablished}`);
+    console.log(`🤖 [AngelOne] Status Check: isAuthenticated=${this.isAuthenticated}, sessionEstablished=${this.sessionEstablished}, activeClientCode=${this.activeClientCode}`);
     return this.isAuthenticated;
   }
 
-  isTokenExpired(): boolean {
-    if (!this.lastAuthTime) return true;
-    return Date.now() - this.lastAuthTime > this.TOKEN_VALIDITY_MS;
+  /**
+   * Performs a lightweight API check using getProfile.
+   * Returns true if the session is alive, false otherwise.
+   */
+  async checkSessionValid(): Promise<boolean> {
+    if (!this.smartApi.access_token) return false;
+    try {
+      const profile = await this.smartApi.getProfile();
+      if (profile && profile.status === true) {
+        return true;
+      }
+      console.warn('🤖 [AngelOne] Session validation failed:', profile ? profile.message : 'No profile response data');
+      return false;
+    } catch (error) {
+      console.error('🤖 [AngelOne] Session validation caught error:', error);
+      return false;
+    }
   }
 
-  async ensureAuthenticated(): Promise<boolean> {
-    if (this.isAuthenticated && !this.isTokenExpired()) {
-      return true;
-    }
-
-    // Only allow auto-refresh if a session was manually established once 
-    if (!this.sessionEstablished) {
-      console.log('🤖 AngelOne: Auto-auth blocked (sessionEstablished=false)');
+  /**
+   * Refreshes the session using the refreshToken saved in the MongoDB session.
+   */
+  async refreshTokenFlow(): Promise<boolean> {
+    const clientCode = this.activeClientCode || env.ANGELONE_CLIENT_CODE;
+    if (!clientCode) {
+      console.warn('🤖 [AngelOne] Cannot refresh token: No active client code found.');
       return false;
     }
 
-    // Token likely expired, try silent re-auth
-    console.log('🤖 AngelOne: Session expired, attempting silent re-auth...');
-    return this.authenticate();
-  }
-
-  async loginWithCredentials(clientCode: string, pin: string, totpCode: string): Promise<boolean> {
     try {
-      console.log('🤖 AngelOne: Manual login attempt for:', clientCode);
-      const res = await this.smartApi.generateSession(clientCode, pin, totpCode);
-      if (res && res.status) {
-        console.log('✅ AngelOne: Manual login SUCCESS');
+      const session = await AngelOneSession.findOne({ clientCode, isActive: true });
+      if (!session || !session.refreshToken) {
+        console.warn(`🤖 [AngelOne] No active session or refresh token found in DB for client ${clientCode}`);
+        return false;
+      }
+
+      console.log(`🤖 [AngelOne] Requesting new access token via refreshToken for client ${clientCode}...`);
+      const res = await this.smartApi.generateToken(session.refreshToken);
+
+      if (res && res.status === true && res.data) {
+        const newJwt = res.data.jwtToken || this.smartApi.access_token;
+        const newRefresh = res.data.refreshToken || this.smartApi.refresh_token;
+
+        // Sync with SDK instance
+        this.smartApi.access_token = newJwt;
+        this.smartApi.refresh_token = newRefresh;
+
         this.isAuthenticated = true;
         this.sessionEstablished = true;
-        this.lastAuthTime = Date.now();
-        this.activeClientCode = clientCode; // Store dynamic client code
-        // Ensure feedToken is retrieved properly since SDK generateSession doesn't store it on the object
-        this.feedToken = res.data?.feedToken || '';
-        console.log('Manual AngelOne authentication successful.');
+
+        // Save new tokens to DB
+        session.jwtToken = newJwt;
+        session.refreshToken = newRefresh;
+        session.lastLoginTime = new Date();
+        await session.save();
+
+        console.log(`✅ [AngelOne] Token refresh SUCCESSFUL for client ${clientCode}.`);
+        
+        // Reconnect WebSocket to use the fresh JWT token
         this.startWebSocket();
         return true;
       }
-      console.warn('Manual AngelOne auth failed:', res ? res.message : 'Unknown error');
+
+      console.warn('⚠️ [AngelOne] Token refresh API returned false:', res ? res.message : 'No response');
       return false;
     } catch (error) {
-      console.error('Manual AngelOne auth error:', error);
+      console.error('❌ [AngelOne] Token refresh encountered an error:', error);
       return false;
     }
   }
 
+  /**
+   * Validates the active session and attempts recovery/refresh/silent re-authentication if dead.
+   */
+  async ensureAuthenticated(): Promise<boolean> {
+    // 1. Trust active session first by checking if it is valid
+    if (this.isAuthenticated && this.smartApi.access_token) {
+      const isValid = await this.checkSessionValid();
+      if (isValid) {
+        return true;
+      }
+    }
+
+    // 2. Only allow automatic refresh if a session was manually established once 
+    if (!this.sessionEstablished) {
+      console.log('🤖 [AngelOne] Auto-auth blocked (sessionEstablished is false)');
+      return false;
+    }
+
+    // 3. Try to refresh the token using refresh token first
+    console.log('🤖 [AngelOne] Session invalid or expired. Attempting token refresh via refreshToken...');
+    const refreshSuccess = await this.refreshTokenFlow();
+    if (refreshSuccess) {
+      return true;
+    }
+
+    // 4. Fall back to silent re-authentication with PIN & TOTP
+    console.log('🤖 [AngelOne] Token refresh failed. Attempting silent re-authentication...');
+    return this.authenticate();
+  }
+
+  /**
+   * Handles manual login from the UI, generating the initial tokens and saving credentials to MongoDB.
+   */
+  async loginWithCredentials(clientCode: string, pin: string, totpCode: string, totpSecret?: string): Promise<boolean> {
+    try {
+      console.log('🤖 [AngelOne] Manual login attempt for client:', clientCode);
+      const res = await this.smartApi.generateSession(clientCode, pin, totpCode);
+      
+      if (res && res.status === true) {
+        console.log('✅ [AngelOne] Manual login SUCCESS');
+        this.isAuthenticated = true;
+        this.sessionEstablished = true;
+        this.activeClientCode = clientCode;
+        this.feedToken = res.data?.feedToken || '';
+        
+        // Fallback to environment TOTP secret if dynamic is not supplied and matches env
+        let actualTotpSecret = totpSecret || '';
+        if (!actualTotpSecret && clientCode === env.ANGELONE_CLIENT_CODE) {
+          actualTotpSecret = env.ANGELONE_TOTP_SECRET;
+        }
+
+        // Encrypt credentials before saving to MongoDB
+        const encryptedPin = encrypt(pin);
+        const encryptedTotp = actualTotpSecret ? encrypt(actualTotpSecret) : '';
+
+        // Save or update session in MongoDB
+        await AngelOneSession.findOneAndUpdate(
+          { clientCode },
+          {
+            jwtToken: res.data?.jwtToken || '',
+            refreshToken: res.data?.refreshToken || '',
+            feedToken: this.feedToken,
+            lastLoginTime: new Date(),
+            sessionEstablished: true,
+            pin: encryptedPin,
+            totpSecret: encryptedTotp || undefined,
+            isActive: true,
+            websocketStatus: 'disconnected'
+          },
+          { upsert: true, new: true }
+        );
+
+        console.log(`💾 [AngelOne] Session and credentials saved securely to MongoDB for client: ${clientCode}`);
+        
+        this.startWebSocket();
+        return true;
+      }
+
+      console.warn('❌ [AngelOne] Manual login failed:', res ? res.message : 'Unknown response');
+      return false;
+    } catch (error) {
+      console.error('❌ [AngelOne] Manual login error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Silently logs the user in by decrypting DB-stored credentials and generating new tokens.
+   */
+  async authenticate(): Promise<boolean> {
+    console.log('🤖 [AngelOne] authenticate() called for silent re-authentication.');
+
+    // Only allow silent auth if a session was manually established once 
+    if (!this.sessionEstablished) {
+      console.log('🤖 [AngelOne] Silent authenticate() rejected - sessionEstablished is false.');
+      return false;
+    }
+
+    const clientCode = this.activeClientCode || env.ANGELONE_CLIENT_CODE;
+    if (!clientCode) {
+      console.warn('🤖 [AngelOne] Silent authenticate() failed: No client code available.');
+      return false;
+    }
+
+    try {
+      // Fetch credentials from DB
+      const session = await AngelOneSession.findOne({ clientCode, isActive: true });
+      let pin = '';
+      let totpSecret = '';
+
+      if (session) {
+        pin = session.pin ? decrypt(session.pin) : '';
+        totpSecret = session.totpSecret ? decrypt(session.totpSecret) : '';
+      }
+
+      // Fallback to environment variables if not found in database session
+      if (!pin && clientCode === env.ANGELONE_CLIENT_CODE) pin = env.ANGELONE_PIN;
+      if (!totpSecret && clientCode === env.ANGELONE_CLIENT_CODE) totpSecret = env.ANGELONE_TOTP_SECRET;
+
+      if (!pin || !totpSecret) {
+        console.warn(`⚠️ [AngelOne] Silent authenticate failed: Missing PIN or TOTP Secret for client ${clientCode}.`);
+        return false;
+      }
+
+      console.log(`🤖 [AngelOne] Generating dynamic TOTP for client ${clientCode}...`);
+      const { otp } = await TOTP.generate(totpSecret);
+
+      console.log(`🤖 [AngelOne] Performing silent API login call for client ${clientCode}...`);
+      const res = await this.smartApi.generateSession(clientCode, pin, otp);
+
+      if (res && res.status === true) {
+        this.isAuthenticated = true;
+        this.sessionEstablished = true;
+        this.activeClientCode = clientCode;
+        this.feedToken = res.data?.feedToken || '';
+
+        // Save session update in DB
+        await AngelOneSession.findOneAndUpdate(
+          { clientCode },
+          {
+            jwtToken: res.data?.jwtToken || '',
+            refreshToken: res.data?.refreshToken || '',
+            feedToken: this.feedToken,
+            lastLoginTime: new Date(),
+            sessionEstablished: true,
+            isActive: true
+          },
+          { upsert: true }
+        );
+
+        console.log(`✅ [AngelOne] Silent authentication successful for client ${clientCode}.`);
+        this.startWebSocket();
+        return true;
+      }
+
+      console.warn('❌ [AngelOne] Silent authentication returned false:', res ? res.message : 'Unknown error');
+      return false;
+    } catch (error) {
+      console.error('❌ [AngelOne] Silent authentication encountered error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Automatically restores the last active session from MongoDB on server startup.
+   */
+  async restoreSession(): Promise<boolean> {
+    console.log('🤖 [AngelOne] Startup recovery initiated. Searching for active session in MongoDB...');
+    try {
+      const session = await AngelOneSession.findOne({ isActive: true }).sort({ lastLoginTime: -1 });
+
+      if (!session) {
+        console.log('🤖 [AngelOne] No active session found in MongoDB. Manual login required.');
+        return false;
+      }
+
+      console.log(`🤖 [AngelOne] Found session in DB for client ${session.clientCode}. Restoring to memory...`);
+      
+      // Restore properties
+      this.activeClientCode = session.clientCode;
+      this.feedToken = session.feedToken;
+      this.sessionEstablished = session.sessionEstablished;
+      this.isAuthenticated = true;
+
+      // Sync tokens into the SmartAPI SDK instance
+      this.smartApi.access_token = session.jwtToken;
+      this.smartApi.refresh_token = session.refreshToken;
+
+      // Validate the restored tokens via lightweight API ping
+      console.log('🤖 [AngelOne] Validating restored session tokens...');
+      const isValid = await this.checkSessionValid();
+
+      if (isValid) {
+        console.log(`✅ [AngelOne] Restored session for ${session.clientCode} is VALID. Reconnecting WebSocket...`);
+        this.startWebSocket();
+        return true;
+      }
+
+      // Restored token is invalid/expired. Try silent token refresh
+      console.log('⚠️ [AngelOne] Restored access token is expired. Attempting token refresh via refreshToken...');
+      const refreshSuccess = await this.refreshTokenFlow();
+      if (refreshSuccess) {
+        console.log(`✅ [AngelOne] Successfully refreshed expired session during restore for ${session.clientCode}.`);
+        return true;
+      }
+
+      // Refresh token expired or failed. Attempt full silent re-authentication
+      console.log('⚠️ [AngelOne] Token refresh failed. Attempting full silent re-authentication using credentials...');
+      const reauthSuccess = await this.authenticate();
+      if (reauthSuccess) {
+        console.log(`✅ [AngelOne] Successfully re-authenticated session during restore for ${session.clientCode}.`);
+        return true;
+      }
+
+      // All restore attempts failed. Invalidate active state
+      console.error(`❌ [AngelOne] Startup recovery failed for ${session.clientCode}. Access revoked.`);
+      this.isAuthenticated = false;
+      session.websocketStatus = 'disconnected';
+      await session.save();
+      return false;
+    } catch (error) {
+      console.error('❌ [AngelOne] Startup recovery encountered an error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Logs out the user from memory, marks the session inactive in MongoDB, and closes WebSocket.
+   */
   async logout() {
-    console.log('🤖 AngelOne: Initiating thorough logout...');
+    console.log('🤖 [AngelOne] Initiating thorough logout...');
     
-    // 1. Clear local state IMMEDIATELY to prevent race conditions
+    const clientCode = this.activeClientCode || env.ANGELONE_CLIENT_CODE;
+
+    // 1. Clear local state IMMEDIATELY
     this.isAuthenticated = false;
     this.sessionEstablished = false;
     this.activeClientCode = '';
     this.feedToken = '';
     
-    // 2. Call Angel One Logout API if we had a session (don't let it block local cleanup)
+    // 2. Mark session inactive in DB
+    if (clientCode) {
+      try {
+        await AngelOneSession.findOneAndUpdate(
+          { clientCode },
+          { isActive: false, websocketStatus: 'disconnected' }
+        );
+        console.log(`✅ [AngelOne] DB Session marked inactive for client: ${clientCode}`);
+      } catch (err) {
+        console.error('⚠️ [AngelOne] Failed to mark DB session inactive:', err);
+      }
+    }
+
+    // 3. Call API Logout if we had a token
     if (this.smartApi.access_token) {
       try {
-        const clientCode = env.ANGELONE_CLIENT_CODE; // Fallback or store locally
         await this.smartApi.logout(clientCode);
-        console.log('✅ AngelOne: API session terminated.');
+        console.log('✅ [AngelOne] API session terminated.');
       } catch (e) {
-        console.warn('⚠️ AngelOne: Logout API call failed (session might already be dead):', e);
+        console.warn('⚠️ [AngelOne] Logout API call failed (session might already be dead):', e);
       }
     }
 
     this.smartApi.access_token = null;
+    this.smartApi.refresh_token = null;
     
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
 
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     if (this.webSocket) {
       try {
         this.webSocket.close();
       } catch (e) {
-        console.error('⚠️ AngelOne: Error closing WebSocket:', e);
+        console.error('⚠️ [AngelOne] Error closing WebSocket:', e);
       } finally {
         this.webSocket = null;
       }
     }
-    console.log('✅ AngelOne: Application logout complete and WebSocket disconnected.');
+    console.log('✅ [AngelOne] Application logout complete and WebSocket disconnected.');
   }
 
+  /**
+   * Establishes the WebSocket connection using standard reconnection and tick monitoring.
+   */
   startWebSocket() {
     if (!this.isAuthenticated || !this.smartApi.access_token || !this.feedToken) {
-      console.warn('Cannot start WebSocket: Not fully authenticated or missing tokens.');
+      console.warn('🤖 [AngelOne] Cannot start WebSocket: Not fully authenticated or missing tokens.');
       return;
     }
 
@@ -127,19 +409,21 @@ export class AngelOneService extends EventEmitter {
       } catch (e) {}
     }
 
-    console.log('Initializing AngelOne WebSocketV2...');
+    console.log('🤖 [AngelOne] Initializing AngelOne WebSocketV2...');
     this.webSocket = new WebSocketV2({
       jwttoken: this.smartApi.access_token.startsWith('Bearer') ? this.smartApi.access_token : 'Bearer ' + this.smartApi.access_token,
       apikey: env.ANGELONE_API_KEY,
-      clientcode: this.activeClientCode, // Use dynamically stored client code
+      clientcode: this.activeClientCode,
       feedtype: this.feedToken
     });
 
-    this.webSocket.customError(); // Enable custom error handler as per SDK docs
+    this.webSocket.customError(); // Enable custom error handler
 
     this.webSocket.connect().then(() => {
-      console.log('✅ AngelOne WebSocketV2 connected.');
+      console.log('✅ [AngelOne] WebSocketV2 connected.');
       this.reconnectAttempts = 0; // Reset on successful connect
+      this.lastTickTime = Date.now(); // Initialize heartbeat tick time
+      this.updateDbWebsocketStatus('connected');
       
       // Subscribe to instruments
       const subscriptionPayload = {
@@ -150,23 +434,36 @@ export class AngelOneService extends EventEmitter {
         tokens: ['26000', '26009'] // NIFTY and BANKNIFTY
       };
 
-      console.log('Subscribing to market data:', subscriptionPayload);
+      console.log('🤖 [AngelOne] Subscribing to market data:', subscriptionPayload);
       this.webSocket.fetchData(subscriptionPayload);
 
       this.webSocket.on('tick', (receiveData: any) => {
         if (!receiveData) return;
-        
-        // Broadcast tick via EventEmitter
+        this.lastTickTime = Date.now(); // Record tick timestamp
         this.emit('market_data', receiveData);
       });
       
+      // Launch tick heartbeat monitor
+      this.startHeartbeatMonitor();
+
     }).catch((err: any) => {
-      console.error('❌ WebSocket Connection Error:', err);
+      console.error('❌ [AngelOne] WebSocket Connection Error:', err);
+      this.updateDbWebsocketStatus('disconnected');
       this.handleReconnect();
     });
+  }
 
-    // The SDK triggers these events internally. Though WebSocketV2 doesn't expose raw close/error normally, 
-    // it handles reconnect itself if configure properly, but we can do it manually on failures.
+  private async updateDbWebsocketStatus(status: string) {
+    if (this.activeClientCode) {
+      try {
+        await AngelOneSession.findOneAndUpdate(
+          { clientCode: this.activeClientCode },
+          { websocketStatus: status }
+        );
+      } catch (err) {
+        // Silent error to prevent blocking execution
+      }
+    }
   }
 
   private handleReconnect() {
@@ -175,65 +472,54 @@ export class AngelOneService extends EventEmitter {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
-      console.log(`⚠️ Attempting WebSocket reconnect in ${delay}ms (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+      console.log(`⚠️ [AngelOne] Attempting WebSocket reconnect in ${delay}ms (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
       
       if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = setTimeout(() => {
         this.startWebSocket();
       }, delay);
     } else {
-      console.error('❌ Max WebSocket reconnect attempts reached. Attempting full re-authentication...');
-      this.authenticate().then(success => {
+      console.error('❌ [AngelOne] Max WebSocket reconnect attempts reached. Verifying session and re-authenticating...');
+      this.ensureAuthenticated().then(success => {
         if (success) {
-          console.log('✅ Auto re-authenticated and WebSocket restarted.');
+          console.log('✅ [AngelOne] Auto re-authenticated and WebSocket restarted.');
         } else {
-          console.error('❌ Auto re-authentication failed. Manual login required.');
+          console.error('❌ [AngelOne] Auto re-authentication failed during WebSocket reconnect. Manual login required.');
         }
       });
     }
   }
 
-  async authenticate(): Promise<boolean> {
-    console.log('🤖 AngelOne: authenticate() called. Checking sessionEstablished...');
-    // Only allow auto-auth if we have an established session
-    if (!this.sessionEstablished) {
-      console.log('🤖 AngelOne: authenticate() REJECTED - sessionEstablished is false.');
-      return false;
-    }
+  /**
+   * Monitored ticks to ensure connection is actually delivering live feeds.
+   * Auto recovers on silent dropouts or JWT expiration.
+   */
+  private startHeartbeatMonitor() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
     
-    // Only allow auto-auth if we have the necessary environment variables
-    if (!env.ANGELONE_API_KEY || !env.ANGELONE_CLIENT_CODE || !env.ANGELONE_PIN || !env.ANGELONE_TOTP_SECRET) {
-      console.warn('🤖 AngelOne: Credentials missing in .env. Auto-auth disabled.');
-      return false;
-    }
-
-    try {
-      console.log('Authenticating with AngelOne SmartAPI using environment credentials...');
+    this.heartbeatInterval = setInterval(async () => {
+      if (!this.isAuthenticated || !this.sessionEstablished) return;
       
-      const { otp } = await TOTP.generate(env.ANGELONE_TOTP_SECRET);
-
-      const res = await this.smartApi.generateSession(
-        env.ANGELONE_CLIENT_CODE,
-        env.ANGELONE_PIN,
-        otp
-      );
-
-      if (res && res.status) {
-        this.isAuthenticated = true;
-        this.lastAuthTime = Date.now();
-        this.activeClientCode = env.ANGELONE_CLIENT_CODE; // Reset to env on fallback
-        this.feedToken = res.data?.feedToken || '';
-        console.log('AngelOne env-based authentication successful.');
-        this.startWebSocket();
-        return true;
+      const timeSinceLastTick = Date.now() - this.lastTickTime;
+      // If no ticks are received for 45 seconds during active session
+      if (this.lastTickTime > 0 && timeSinceLastTick > 45000) {
+        console.warn(`⚠️ [Heartbeat Monitor] No ticks received for ${Math.round(timeSinceLastTick/1000)}s. Checking session validity...`);
+        const isValid = await this.checkSessionValid();
+        
+        if (!isValid) {
+          console.error('❌ [Heartbeat Monitor] Session is invalid. Triggering recovery auth flow...');
+          const success = await this.ensureAuthenticated();
+          if (success) {
+            console.log('✅ [Heartbeat Monitor] Recovered session and restarted WebSocket.');
+          } else {
+            console.error('❌ [Heartbeat Monitor] Session recovery failed.');
+          }
+        } else {
+          console.log('ℹ️ [Heartbeat Monitor] Session is valid, but socket is silent. Re-initializing WebSocket...');
+          this.startWebSocket();
+        }
       }
-      
-      console.warn('AngelOne auth failed:', res ? res.message : 'No access token generated.');
-      return false;
-    } catch (error) {
-      console.error('AngelOne auth error:', error);
-      return false;
-    }
+    }, 30000); // Check every 30 seconds
   }
 
   async getHistoricalData(symbol: string): Promise<any[]> {
@@ -275,7 +561,7 @@ export class AngelOneService extends EventEmitter {
       // Handle expired token or session issues — retry once after re-auth
       if (res && res.status === false) {
         console.warn('Historical API failed, re-authenticating...', res.message);
-        const authSuccess = await this.authenticate();
+        const authSuccess = await this.ensureAuthenticated();
         if (authSuccess) {
            res = await this.smartApi.getCandleData(payload);
         }
@@ -339,9 +625,6 @@ export class AngelOneService extends EventEmitter {
   }
 
   async getDividendData(): Promise<any[]> {
-    // Angel One SmartAPI does NOT provide corporate actions or dividend endpoints.
-    // If the user wants real dividend data, it must be fetched from an external source 
-    // like NSE directly, Yahoo Finance, or another provider.
     return [];
   }
 }
