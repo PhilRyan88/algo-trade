@@ -9,6 +9,7 @@ export interface OrderDetails {
   reason: string;
   timestamp: string;
   entryFeatures?: number[];
+  mlScore?: number;
 }
 
 /**
@@ -80,7 +81,7 @@ export async function orderExecutor(details: OrderDetails): Promise<IPaperTrade>
     pnl: 0,
     status: 'OPEN',
     confidence: score,
-    mlScore: 0,
+    mlScore: details.mlScore || 0,
     reason,
     openedAt: new Date(timestamp),
     closedAt: null,

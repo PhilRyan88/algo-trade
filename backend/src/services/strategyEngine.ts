@@ -200,18 +200,27 @@ class StrategyEngine extends EventEmitter {
               target: ltp * 1.1 // approx TP spot
             });
 
-            // Execute trade order!
-            const trade = await orderExecutor({
-              symbol,
-              optionType,
-              spotPrice: ltp,
-              score,
-              quantity: riskCheck.quantity,
-              reason: `Weighted score is ${score} based on bullish/bearish alignment`,
-              timestamp: candleTimestamp,
-              entryFeatures
-            });
-            console.log(`🚀 [ORDER PLACED] Placed ATM option order: ${trade.symbol} x ${trade.quantity} @ premium ₹${trade.entryPrice.toFixed(2)}`);
+            // Get ML prediction for the setup
+            const { mlService } = require('./mlService');
+            const mlPrediction = await mlService.scoreSignal(entryFeatures);
+
+            if (mlPrediction.verdict === 'STRONG_SKIP') {
+              rejectedReason = `ML Model vetoed setup (Score: ${(mlPrediction.score * 100).toFixed(1)}%)`;
+            } else {
+              // Execute trade order!
+              const trade = await orderExecutor({
+                symbol,
+                optionType,
+                spotPrice: ltp,
+                score,
+                quantity: riskCheck.quantity,
+                reason: `Weighted score is ${score}. ML Verdict: ${mlPrediction.verdict}`,
+                timestamp: candleTimestamp,
+                entryFeatures,
+                mlScore: mlPrediction.score
+              });
+              console.log(`🚀 [ORDER PLACED] Placed ATM option order: ${trade.symbol} x ${trade.quantity} @ premium ₹${trade.entryPrice.toFixed(2)}`);
+            }
           }
         }
       } else {
