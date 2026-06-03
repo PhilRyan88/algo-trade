@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { angelOneService } from '../services/angelOneService';
-import { strategyEngine } from '../services/strategyEngine';
-import { env } from '../config/env';
+import { angelOneService } from '../../market/marketData/angelOneService';
+import { strategyEngine } from '../../strategy/strategyManager';
+import { env } from '../../config/env';
 
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/login', async (request, reply) => {

@@ -1,4 +1,4 @@
-import { IndicatorValues } from './indicatorEngine';
+import { IndicatorValues } from '../market/indicators/indicatorEngine';
 
 export interface SignalCheck {
   vwapAlignment: boolean;

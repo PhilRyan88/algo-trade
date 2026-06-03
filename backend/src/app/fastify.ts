@@ -1,11 +1,11 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import breakoutRoutes from './routes/breakoutRoutes';
-import dividendRoutes from './routes/dividendRoutes';
-import optionsRoutes from './routes/optionsRoutes';
-import authRoutes from './routes/authRoutes';
-import marketRoutes from './routes/marketRoutes';
-import tradeRoutes from './routes/tradeRoutes';
+import breakoutRoutes from '../api/routes/breakoutRoutes';
+import dividendRoutes from '../api/routes/dividendRoutes';
+import optionsRoutes from '../api/routes/optionsRoutes';
+import authRoutes from '../api/routes/authRoutes';
+import marketRoutes from '../api/routes/marketRoutes';
+import tradeRoutes from '../api/routes/tradeRoutes';
 
 const app = Fastify({ logger: true });
 

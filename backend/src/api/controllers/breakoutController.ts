@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { Breakout } from '../models/Breakout';
+import { Breakout } from '../../database/models/Breakout';
 
 export const getBreakouts = async (request: FastifyRequest, reply: FastifyReply) => {
   try {

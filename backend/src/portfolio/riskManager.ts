@@ -1,5 +1,5 @@
-import { PaperTrade } from '../../models/PaperTrade';
-import { getStartingCapital } from '../settingsService';
+import { PaperTrade } from '../database/models/PaperTrade';
+import { getStartingCapital } from '../api/controllers/settingsService';
 
 export interface RiskStatus {
   allowed: boolean;

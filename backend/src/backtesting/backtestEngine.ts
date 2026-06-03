@@ -1,6 +1,6 @@
-import { angelOneService } from './angelOneService';
-import { extractFeatures } from './featureExtractor';
-import { mlService } from './mlService';
+import { angelOneService } from '../market/marketData/angelOneService';
+import { extractFeatures } from '../market/candles/featureExtractor';
+import { mlService } from '../strategy/mlService';
 
 // Re-import strategy logic (duplicated here or exported from strategyEngine)
 // For simplicity, we'll re-implement the scan logic to find signals in historical data

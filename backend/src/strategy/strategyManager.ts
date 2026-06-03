@@ -1,15 +1,15 @@
 import mongoose from 'mongoose';
 import { EventEmitter } from 'events';
-import { angelOneService } from './angelOneService';
-import { PaperTrade } from '../models/PaperTrade';
-import { indicatorEngine, IndicatorValues } from './strategy/indicatorEngine';
-import { signalEngine } from './strategy/signalEngine';
-import { scoringEngine } from './strategy/scoringEngine';
-import { riskManager } from './strategy/riskManager';
-import { orderExecutor } from './strategy/orderExecutor';
-import { positionManager, closeAllOpenPositions } from './strategy/positionManager';
-import { tradeLogger } from './strategy/tradeLogger';
-import { StrategyLog } from '../models/StrategyLog';
+import { angelOneService } from '../market/marketData/angelOneService';
+import { PaperTrade } from '../database/models/PaperTrade';
+import { indicatorEngine, IndicatorValues } from '../market/indicators/indicatorEngine';
+import { signalEngine } from './signalEngine';
+import { scoringEngine } from './scoringEngine';
+import { riskManager } from '../portfolio/riskManager';
+import { orderExecutor } from '../execution/orderExecutor';
+import { positionManager, closeAllOpenPositions } from '../portfolio/positionManager';
+import { tradeLogger } from '../shared/logger/tradeLogger';
+import { StrategyLog } from '../database/models/StrategyLog';
 
 class StrategyEngine extends EventEmitter {
   constructor() {

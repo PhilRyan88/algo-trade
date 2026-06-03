@@ -1,5 +1,5 @@
-import { PaperTrade, IPaperTrade } from '../../models/PaperTrade';
-import { IndicatorValues } from './indicatorEngine';
+import { PaperTrade, IPaperTrade } from '../database/models/PaperTrade';
+import { IndicatorValues } from '../market/indicators/indicatorEngine';
 
 const BROKERAGE_FEE = 45;
 

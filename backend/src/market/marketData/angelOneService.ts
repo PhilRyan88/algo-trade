@@ -1,11 +1,11 @@
-import { env } from '../config/env';
+import { env } from '../../config/env';
 // @ts-ignore
 import { SmartAPI, WebSocketV2 } from 'smartapi-javascript';
 // @ts-ignore
 import { TOTP } from 'totp-generator';
 import { EventEmitter } from 'events';
-import { AngelOneSession } from '../models/AngelOneSession';
-import { encrypt, decrypt } from '../utils/crypto';
+import { AngelOneSession } from '../../database/models/AngelOneSession';
+import { encrypt, decrypt } from '../../shared/utils/crypto';
 
 export class AngelOneService extends EventEmitter {
   private smartApi: any;
