@@ -223,11 +223,19 @@ class StrategyEngine extends EventEmitter {
         const bestCheck = longScore >= shortScore ? signalReport.long : signalReport.short;
         
         const failedChecks = [];
-        if (!bestCheck.vwapAlignment) failedChecks.push('Spot > VWAP');
-        if (!bestCheck.emaAlignment) failedChecks.push('Spot > EMA9');
-        if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI (${signalReport.rsi.toFixed(0)})`);
-        if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
-        if (!bestCheck.breakoutCandle) failedChecks.push('Bullish Candle');
+        if (bestDirection === 'CE') {
+          if (!bestCheck.vwapAlignment) failedChecks.push('Spot > VWAP');
+          if (!bestCheck.emaAlignment) failedChecks.push('Spot > EMA9');
+          if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI > 55 (${signalReport.rsi.toFixed(0)})`);
+          if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
+          if (!bestCheck.breakoutCandle) failedChecks.push('Bullish Candle');
+        } else {
+          if (!bestCheck.vwapAlignment) failedChecks.push('Spot < VWAP');
+          if (!bestCheck.emaAlignment) failedChecks.push('Spot < EMA9');
+          if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI < 45 (${signalReport.rsi.toFixed(0)})`);
+          if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
+          if (!bestCheck.breakoutCandle) failedChecks.push('Bearish Candle');
+        }
 
         rejectedReason = `Score ${bestScore}/100 too low for ${bestDirection}. Failed: ${failedChecks.join(', ')}`;
       }

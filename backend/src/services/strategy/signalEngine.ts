@@ -35,14 +35,14 @@ export function signalEngine(latestCandle: IndicatorValues): SignalReport {
       vwapAlignment: spotPrice > latestCandle.vwap,
       emaAlignment: spotPrice > latestCandle.ema9,
       rsiConfirmation: latestCandle.rsi > 55,
-      volumeSpike: latestCandle.volume > latestCandle.volumeSma20,
+      volumeSpike: latestCandle.volume > latestCandle.volumeSma20 * 0.8,
       breakoutCandle: isBullish
     },
     short: {
       vwapAlignment: spotPrice < latestCandle.vwap,
       emaAlignment: spotPrice < latestCandle.ema9,
       rsiConfirmation: latestCandle.rsi < 45,
-      volumeSpike: latestCandle.volume > latestCandle.volumeSma20,
+      volumeSpike: latestCandle.volume > latestCandle.volumeSma20 * 0.8,
       breakoutCandle: isBearish
     },
     spotPrice,
