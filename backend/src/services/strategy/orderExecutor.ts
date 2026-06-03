@@ -9,6 +9,7 @@ export interface OrderDetails {
   reason: string;
   timestamp: string;
   entryFeatures?: number[];
+  mlScore?: number;
 }
 
 /**
@@ -57,12 +58,14 @@ export async function orderExecutor(details: OrderDetails): Promise<IPaperTrade>
 
   // Create option trade contract symbol
   const expiryDate = new Date(timestamp);
-  // Find nearest Thursday for option code (weekly contract representation)
-  const daysUntilThursday = (4 - expiryDate.getDay() + 7) % 7;
-  const thursday = new Date(expiryDate);
-  thursday.setDate(expiryDate.getDate() + daysUntilThursday);
+  // Find nearest expiry day for option code (weekly contract representation)
+  // BankNifty = Wednesday (3), Nifty = Thursday (4)
+  const targetDay = symbol.includes('BANKNIFTY') ? 3 : 4;
+  const daysUntilExpiry = (targetDay - expiryDate.getDay() + 7) % 7;
+  const expiryObj = new Date(expiryDate);
+  expiryObj.setDate(expiryDate.getDate() + daysUntilExpiry);
   
-  const expiryStr = thursday.toLocaleDateString('en-US', { day: '2-digit', month: 'short' }).toUpperCase().replace(' ', '');
+  const expiryStr = expiryObj.toLocaleDateString('en-US', { day: '2-digit', month: 'short' }).toUpperCase().replace(' ', '');
   const optionSymbol = `${symbol} ${expiryStr} ${optionStrike} ${optionType}`;
 
   // 4. Create and Save the PaperTrade model
@@ -78,7 +81,7 @@ export async function orderExecutor(details: OrderDetails): Promise<IPaperTrade>
     pnl: 0,
     status: 'OPEN',
     confidence: score,
-    mlScore: 0,
+    mlScore: details.mlScore || 0,
     reason,
     openedAt: new Date(timestamp),
     closedAt: null,

@@ -200,18 +200,27 @@ class StrategyEngine extends EventEmitter {
               target: ltp * 1.1 // approx TP spot
             });
 
-            // Execute trade order!
-            const trade = await orderExecutor({
-              symbol,
-              optionType,
-              spotPrice: ltp,
-              score,
-              quantity: riskCheck.quantity,
-              reason: `Weighted score is ${score} based on bullish/bearish alignment`,
-              timestamp: candleTimestamp,
-              entryFeatures
-            });
-            console.log(`🚀 [ORDER PLACED] Placed ATM option order: ${trade.symbol} x ${trade.quantity} @ premium ₹${trade.entryPrice.toFixed(2)}`);
+            // Get ML prediction for the setup
+            const { mlService } = require('./mlService');
+            const mlPrediction = await mlService.scoreSignal(entryFeatures);
+
+            if (mlPrediction.verdict === 'STRONG_SKIP') {
+              rejectedReason = `ML Model vetoed setup (Score: ${(mlPrediction.score * 100).toFixed(1)}%)`;
+            } else {
+              // Execute trade order!
+              const trade = await orderExecutor({
+                symbol,
+                optionType,
+                spotPrice: ltp,
+                score,
+                quantity: riskCheck.quantity,
+                reason: `Weighted score is ${score}. ML Verdict: ${mlPrediction.verdict}`,
+                timestamp: candleTimestamp,
+                entryFeatures,
+                mlScore: mlPrediction.score
+              });
+              console.log(`🚀 [ORDER PLACED] Placed ATM option order: ${trade.symbol} x ${trade.quantity} @ premium ₹${trade.entryPrice.toFixed(2)}`);
+            }
           }
         }
       } else {
@@ -223,11 +232,19 @@ class StrategyEngine extends EventEmitter {
         const bestCheck = longScore >= shortScore ? signalReport.long : signalReport.short;
         
         const failedChecks = [];
-        if (!bestCheck.vwapAlignment) failedChecks.push('Spot > VWAP');
-        if (!bestCheck.emaAlignment) failedChecks.push('Spot > EMA9');
-        if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI (${signalReport.rsi.toFixed(0)})`);
-        if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
-        if (!bestCheck.breakoutCandle) failedChecks.push('Bullish Candle');
+        if (bestDirection === 'CE') {
+          if (!bestCheck.vwapAlignment) failedChecks.push('Spot > VWAP');
+          if (!bestCheck.emaAlignment) failedChecks.push('Spot > EMA9');
+          if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI > 55 (${signalReport.rsi.toFixed(0)})`);
+          if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
+          if (!bestCheck.breakoutCandle) failedChecks.push('Bullish Candle');
+        } else {
+          if (!bestCheck.vwapAlignment) failedChecks.push('Spot < VWAP');
+          if (!bestCheck.emaAlignment) failedChecks.push('Spot < EMA9');
+          if (!bestCheck.rsiConfirmation) failedChecks.push(`RSI < 45 (${signalReport.rsi.toFixed(0)})`);
+          if (!bestCheck.volumeSpike) failedChecks.push('Volume Spike');
+          if (!bestCheck.breakoutCandle) failedChecks.push('Bearish Candle');
+        }
 
         rejectedReason = `Score ${bestScore}/100 too low for ${bestDirection}. Failed: ${failedChecks.join(', ')}`;
       }

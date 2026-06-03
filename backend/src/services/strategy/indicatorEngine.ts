@@ -232,15 +232,28 @@ export function calculateVolumeSMA(candles: Candle[], period: number = 20): numb
   const sma: number[] = new Array(candles.length).fill(0);
   if (candles.length === 0) return sma;
 
+  let currentDayStr = '';
   let runningSum = 0;
+  let currentDayCount = 0;
+
   for (let i = 0; i < candles.length; i++) {
-    runningSum += candles[i].volume;
-    if (i < period - 1) {
-      sma[i] = runningSum / (i + 1);
+    const c = candles[i];
+    const date = new Date(c.timestamp);
+    const dayStr = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    
+    if (dayStr !== currentDayStr) {
+      currentDayStr = dayStr;
+      runningSum = 0;
+      currentDayCount = 0;
+    }
+
+    runningSum += c.volume;
+    currentDayCount++;
+
+    if (currentDayCount <= period) {
+      sma[i] = runningSum / currentDayCount;
     } else {
-      if (i >= period) {
-        runningSum -= candles[i - period].volume;
-      }
+      runningSum -= candles[i - period].volume;
       sma[i] = runningSum / period;
     }
   }
