@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { nseService } from '../services/nseService';
+import { nseService } from '../../market/marketData/nseService';
 
 export default async function dividendRoutes(fastify: FastifyInstance) {
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {

@@ -1,4 +1,4 @@
-import { Setting } from '../models/Setting';
+import { Setting } from '../../database/models/Setting';
 
 export async function getStartingCapital(): Promise<number> {
   try {

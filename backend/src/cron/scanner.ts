@@ -1,7 +1,7 @@
 import cron from 'node-cron';
-import { angelOneService } from '../services/angelOneService';
-import { detectBreakout } from '../services/analysisService';
-import { Breakout } from '../models/Breakout';
+import { angelOneService } from '../market/marketData/angelOneService';
+import { detectBreakout } from '../shared/utils/analysisService';
+import { Breakout } from '../database/models/Breakout';
 
 export const setupCronJobs = () => {
   // Run every Saturday at 10:00 AM

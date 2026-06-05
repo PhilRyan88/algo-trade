@@ -1,4 +1,4 @@
-import { PaperTrade, IPaperTrade } from '../../models/PaperTrade';
+import { PaperTrade, IPaperTrade } from '../database/models/PaperTrade';
 
 export interface OrderDetails {
   symbol: string;

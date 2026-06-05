@@ -1,10 +1,10 @@
 import { WebSocketServer } from 'ws';
-import app from './app';
-import { connectDB } from './config/db';
-import { env } from './config/env';
-import { setupCronJobs } from './cron/scanner';
-import { angelOneService } from './services/angelOneService';
-import { strategyEngine } from './services/strategyEngine';
+import app from './fastify';
+import { connectDB } from '../config/db';
+import { env } from '../config/env';
+import { setupCronJobs } from '../cron/scanner';
+import { angelOneService } from '../market/marketData/angelOneService';
+import { strategyEngine } from '../strategy/strategyManager';
 
 const startServer = async () => {
   console.log('🚀 Server starting process initiated...');
@@ -27,36 +27,8 @@ const startServer = async () => {
     console.log(`✅ Server running at ${address}`);
 
     // 4. Setup WebSocket (Do this AFTER the server is listening)
-    const wss = new WebSocketServer({ server: app.server, path: '/api/ws' });
-
-    wss.on('connection', (ws) => {
-      console.log('🔌 New WebSocket connection');
-      
-      const marketDataListener = (data: any) => {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: 'market_data', data }));
-        }
-      };
-
-      const strategyLogListener = (logData: any) => {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: 'strategy_log', data: logData }));
-        }
-      };
-
-      angelOneService.on('market_data', marketDataListener);
-      strategyEngine.on('strategy_log', strategyLogListener);
-
-      ws.on('message', (message) => {
-        const msg = message.toString();
-        if (msg === 'ping') ws.send('pong');
-      });
-
-      ws.on('close', () => {
-        angelOneService.off('market_data', marketDataListener);
-        strategyEngine.off('strategy_log', strategyLogListener);
-      });
-    });
+    const { setupWebSocketServer } = require('../realtime/wsServer');
+    setupWebSocketServer(app.server);
 
     // 5. Strategy Engine is ready (Manual start required)
     console.log('🤖 Strategy Engine initialized in STOPPED state. Start it manually from the dashboard.');

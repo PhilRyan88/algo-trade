@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { angelOneService } from '../services/angelOneService';
+import { angelOneService } from '../../market/marketData/angelOneService';
 
 export default async function optionsRoutes(fastify: FastifyInstance) {
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {

@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs';
 import * as fs from 'fs';
 import * as path from 'path';
-import { NUM_FEATURES } from './featureExtractor';
+import { NUM_FEATURES } from '../market/candles/featureExtractor';
 
 export class MLService {
   private model: tf.LayersModel | null = null;

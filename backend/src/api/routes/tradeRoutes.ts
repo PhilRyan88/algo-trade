@@ -1,10 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import { PaperTrade } from '../models/PaperTrade';
-import { strategyEngine } from '../services/strategyEngine';
-import { mlService } from '../services/mlService';
-import { backtestService } from '../services/backtestService';
-import { getStartingCapital, setStartingCapital } from '../services/settingsService';
-import { StrategyLog } from '../models/StrategyLog';
+import { PaperTrade } from '../../database/models/PaperTrade';
+import { strategyEngine } from '../../strategy/strategyManager';
+import { mlService } from '../../strategy/mlService';
+import { backtestService } from '../../backtesting/backtestEngine';
+import { getStartingCapital, setStartingCapital } from '../controllers/settingsService';
+import { StrategyLog } from '../../database/models/StrategyLog';
 
 export default async function tradeRoutes(fastify: FastifyInstance) {
   console.log('🔌 Registering Trade Routes (including ML endpoints)...');

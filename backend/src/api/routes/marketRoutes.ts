@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { angelOneService } from '../services/angelOneService';
+import { angelOneService } from '../../market/marketData/angelOneService';
 
 export default async function marketRoutes(fastify: FastifyInstance) {
   fastify.get('/historical/:symbol', async (request, reply) => {
